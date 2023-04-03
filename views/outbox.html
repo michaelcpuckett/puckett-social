@@ -1,0 +1,41 @@
+{% macro outboxPage() %}
+<!doctype html>
+<meta charset="utf-8" />
+<title>{{ entity.name }}'s Blog</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="stylesheet" href="/public.css" />
+<link rel="stylesheet" href="/outbox.css" />
+<header class="header">
+  <h1>
+    {{ actor.name }}
+  </h1>
+  <nav>
+    <a href="/profile">
+      @{{ actor.preferredUsername}}@puckett.social
+    </a>
+  </nav>
+</header>
+<main class="timeline">
+  {% for item in outbox.orderedItems %}
+    {% if item.type == 'Create' and item.object.type == 'Article' %}
+      <article class="article">
+        <time datetime="{{ item.object.published | formatDate }}">
+          {{ item.object.published | formatDate }}
+        </time>
+        <a href="{{ item.object.url }}">
+          {{ item.object.summary | safe }}
+        </a>
+      </article>
+    {% elif item.type == 'Create' and item.object.type == 'Note' %}
+      <article class="note">
+        {{ item.object.content | safe }}
+        <a href="{{ item.object.url }}">
+          <time datetime="{{ item.object.published | formatDateTime }}">
+            {{ item.object.published | formatDateTimeForDisplay }}
+          </time>
+        </a>
+      </article>
+    {% endif %}
+  {% endfor %}
+</main>
+{% endmacro %}
