@@ -615,8 +615,10 @@ uploadMediaFormElement?.addEventListener("submit", (event)=>{
         },
         body: formData
     }).then((response)=>{
-        if (response.headers.get("Location")) {
-            const iconId = response.headers.get("Location");
+        const createActivityUrl = response.headers.get("Location");
+        if (createActivityUrl) fetch(`/proxy/?resource=${createActivityUrl}`).then((response)=>{
+            return response.json();
+        }).then(({ object: icon  })=>{
             fetch(outboxUrl, {
                 method: "POST",
                 headers: {
@@ -634,7 +636,7 @@ uploadMediaFormElement?.addEventListener("submit", (event)=>{
                     ],
                     object: {
                         id: actorId,
-                        icon: iconId
+                        icon
                     }
                 })
             }).then((response)=>{
@@ -642,7 +644,9 @@ uploadMediaFormElement?.addEventListener("submit", (event)=>{
             }).catch((error)=>{
                 console.log(error);
             });
-        }
+        }).catch((error)=>{
+            console.log(error);
+        });
     }).catch((error)=>{
         console.log(error);
     });

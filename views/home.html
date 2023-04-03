@@ -7,7 +7,9 @@
   <summary>
     Edit Profile
   </summary>
-  
+  {% if actor.icon.url %}
+    <img src="{{ actor.icon.url }}" height="80" width="80" />
+  {% endif %}
   <form 
     novalidate
     action="{{ actor.outbox.url }}"
@@ -68,7 +70,7 @@
   </form>
 </details>
 
-<details open>
+<details>
   <summary>
     Microblog Status
   </summary>
@@ -146,7 +148,7 @@
   </ul>
 </details>
 
-<details open>
+<details>
   <summary>
     New Blog Post
   </summary>

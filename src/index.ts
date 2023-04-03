@@ -99,6 +99,10 @@ import { JSDOM } from 'jsdom';
   );
 
   nunjucksConfig.addFilter('toMarkdown', (string: string) => {
+    if (!string) {
+      return '';
+    }
+
     const converter = new showdown.Converter();
     return converter.makeMarkdown(string);
   });

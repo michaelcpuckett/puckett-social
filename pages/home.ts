@@ -73,29 +73,40 @@ uploadMediaFormElement?.addEventListener('submit', (event) => {
     body: formData,
   })
     .then((response) => {
-      if (response.headers.get('Location')) {
-        const iconId = response.headers.get('Location');
-
-        fetch(outboxUrl, {
-          method: 'POST',
-          headers: {
-            Accept: 'application/activity+json',
-          },
-          body: JSON.stringify({
-            '@context': ['https://www.w3.org/ns/activitystreams'],
-            type: 'Update',
-            actor: actorId,
-            to: ['https://www.w3.org/ns/activitystreams#Public', followersUrl],
-            object: {
-              id: actorId,
-              icon: iconId,
-            },
-          }),
-        })
+      const createActivityUrl = response.headers.get('Location');
+      if (createActivityUrl) {
+        fetch(`/proxy/?resource=${createActivityUrl}`)
           .then((response) => {
-            if (response.headers.get('Location')) {
-              window.location.reload();
-            }
+            return response.json();
+          })
+          .then(({ object: icon }) => {
+            fetch(outboxUrl, {
+              method: 'POST',
+              headers: {
+                Accept: 'application/activity+json',
+              },
+              body: JSON.stringify({
+                '@context': ['https://www.w3.org/ns/activitystreams'],
+                type: 'Update',
+                actor: actorId,
+                to: [
+                  'https://www.w3.org/ns/activitystreams#Public',
+                  followersUrl,
+                ],
+                object: {
+                  id: actorId,
+                  icon,
+                },
+              }),
+            })
+              .then((response) => {
+                if (response.headers.get('Location')) {
+                  window.location.reload();
+                }
+              })
+              .catch((error) => {
+                console.log(error);
+              });
           })
           .catch((error) => {
             console.log(error);

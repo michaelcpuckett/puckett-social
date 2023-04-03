@@ -5,6 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <link rel="stylesheet" href="/public.css" />
 <header class="header">
+  {% if entity.icon.url %}
+    <img height="80" width="80" class="avatar" aria-hidden="true" src="{{ entity.icon.url }}" />
+  {% endif %}
   <h1>
     {{ entity.name }}
   </h1>
