@@ -7,6 +7,27 @@
   <summary>
     Edit Profile
   </summary>
+  
+  <form 
+    novalidate
+    action="{{ actor.outbox.url }}"
+    data-endpoint-url="{{ actor.endpoints.uploadMedia }}"
+    method="POST"
+    data-action="upload-media"
+    data-actor-id="{{ actor.id }}"
+    data-followers-url="{{ actor.followers }}">
+    <label class="label">
+      <span class="label-text">
+        Change Profile Pic
+      </span>
+      <input
+        type="file"
+        name="file"
+        accept="image/*"
+      />
+    </label>
+    <button type="submit">Upload</button>
+  </form>
   <form
     novalidate
     action="{{ actor.outbox.url }}"
@@ -140,7 +161,7 @@
       <span class="label-text">
         Title
       </span>
-      <input type="text" name="summary" />
+      <textarea name="summary" rows="1"></textarea>
     </label>
     <label class="label">
       <span class="label-text">
@@ -188,7 +209,7 @@
                   <span class="label-text">
                     Title
                   </span>
-                  <textarea name="summary">{{ item.summary | toMarkdown }}</textarea>
+                  <textarea name="summary" rows="1">{{ item.summary | toMarkdown }}</textarea>
                 </label>
                 <label class="label">
                   <span class="label-text">

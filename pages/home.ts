@@ -50,6 +50,63 @@ editProfileFormElement?.addEventListener('submit', (event) => {
     });
 });
 
+const uploadMediaFormElement = window.document.querySelector<HTMLFormElement>(
+  'form[data-action="upload-media"]',
+);
+
+uploadMediaFormElement?.addEventListener('submit', (event) => {
+  event.preventDefault();
+
+  const outboxUrl = uploadMediaFormElement.getAttribute('action') ?? '';
+  const endpointUrl =
+    uploadMediaFormElement.getAttribute('data-endpoint-url') ?? '';
+  const followersUrl =
+    uploadMediaFormElement.getAttribute('data-followers-url') ?? '';
+  const actorId = uploadMediaFormElement.getAttribute('data-actor-id') ?? '';
+  const formData = new FormData(uploadMediaFormElement);
+  formData.set('object', JSON.stringify({ type: 'Image' }));
+  fetch(endpointUrl, {
+    method: 'POST',
+    headers: {
+      Accept: 'application/activity+json',
+    },
+    body: formData,
+  })
+    .then((response) => {
+      if (response.headers.get('Location')) {
+        const iconId = response.headers.get('Location');
+
+        fetch(outboxUrl, {
+          method: 'POST',
+          headers: {
+            Accept: 'application/activity+json',
+          },
+          body: JSON.stringify({
+            '@context': ['https://www.w3.org/ns/activitystreams'],
+            type: 'Update',
+            actor: actorId,
+            to: ['https://www.w3.org/ns/activitystreams#Public', followersUrl],
+            object: {
+              id: actorId,
+              icon: iconId,
+            },
+          }),
+        })
+          .then((response) => {
+            if (response.headers.get('Location')) {
+              window.location.reload();
+            }
+          })
+          .catch((error) => {
+            console.log(error);
+          });
+      }
+    })
+    .catch((error) => {
+      console.log(error);
+    });
+});
+
 const newMicroblogStatusFormElement = window.document.querySelector(
   '[data-action="new-microblog-status"]',
 );
