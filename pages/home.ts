@@ -1,38 +1,38 @@
-import showdown from "showdown";
+import showdown from 'showdown';
 
 const editProfileFormElement = window.document.querySelector(
-  'form[data-action="edit-profile"]'
+  'form[data-action="edit-profile"]',
 );
 
-editProfileFormElement?.addEventListener("submit", (event) => {
+editProfileFormElement?.addEventListener('submit', (event) => {
   event.preventDefault();
 
-  const outboxUrl = editProfileFormElement.getAttribute("action") ?? "";
+  const outboxUrl = editProfileFormElement.getAttribute('action') ?? '';
   const followersUrl =
-    editProfileFormElement.getAttribute("data-followers-url") ?? "";
-  const actorId = editProfileFormElement.getAttribute("data-actor-id") ?? "";
+    editProfileFormElement.getAttribute('data-followers-url') ?? '';
+  const actorId = editProfileFormElement.getAttribute('data-actor-id') ?? '';
 
   const name =
     editProfileFormElement?.querySelector<HTMLInputElement>('[name="name"]')
-      ?.value ?? "";
+      ?.value ?? '';
   const summary =
     editProfileFormElement?.querySelector<HTMLTextAreaElement>(
-      '[name="summary"]'
-    )?.value ?? "";
+      '[name="summary"]',
+    )?.value ?? '';
 
   const converter = new showdown.Converter();
   const htmlSummary = converter.makeHtml(summary);
 
   fetch(outboxUrl, {
-    method: "POST",
+    method: 'POST',
     headers: {
-      Accept: "application/activity+json",
+      Accept: 'application/activity+json',
     },
     body: JSON.stringify({
-      "@context": ["https://www.w3.org/ns/activitystreams"],
-      type: "Update",
+      '@context': ['https://www.w3.org/ns/activitystreams'],
+      type: 'Update',
       actor: actorId,
-      to: ["https://www.w3.org/ns/activitystreams#Public", followersUrl],
+      to: ['https://www.w3.org/ns/activitystreams#Public', followersUrl],
       object: {
         id: actorId,
         name,
@@ -41,7 +41,7 @@ editProfileFormElement?.addEventListener("submit", (event) => {
     }),
   })
     .then((response) => {
-      if (response.headers.get("Location")) {
+      if (response.headers.get('Location')) {
         window.location.reload();
       }
     })
@@ -51,43 +51,131 @@ editProfileFormElement?.addEventListener("submit", (event) => {
 });
 
 const newMicroblogStatusFormElement = window.document.querySelector(
-  '[data-action="new-microblog-status"]'
+  '[data-action="new-microblog-status"]',
 );
 
-newMicroblogStatusFormElement?.addEventListener("submit", (event) => {
+newMicroblogStatusFormElement?.addEventListener('submit', (event) => {
   event.preventDefault();
 
-  const outboxUrl = newMicroblogStatusFormElement.getAttribute("action") ?? "";
+  const outboxUrl = newMicroblogStatusFormElement.getAttribute('action') ?? '';
   const followersUrl =
-    newMicroblogStatusFormElement.getAttribute("data-followers-url") ?? "";
+    newMicroblogStatusFormElement.getAttribute('data-followers-url') ?? '';
   const actorId =
-    newMicroblogStatusFormElement.getAttribute("data-actor-id") ?? "";
+    newMicroblogStatusFormElement.getAttribute('data-actor-id') ?? '';
   const content =
     newMicroblogStatusFormElement.querySelector<HTMLTextAreaElement>(
-      '[name="content"]'
-    )?.value ?? "";
+      '[name="content"]',
+    )?.value ?? '';
 
   const converter = new showdown.Converter();
   const htmlContent = converter.makeHtml(content);
 
   fetch(outboxUrl, {
-    method: "POST",
+    method: 'POST',
     headers: {
-      Accept: "application/activity+json",
+      Accept: 'application/activity+json',
     },
     body: JSON.stringify({
-      "@context": ["https://www.w3.org/ns/activitystreams"],
-      type: "Create",
+      '@context': ['https://www.w3.org/ns/activitystreams'],
+      type: 'Create',
       actor: actorId,
-      to: ["https://www.w3.org/ns/activitystreams#Public", followersUrl],
+      to: ['https://www.w3.org/ns/activitystreams#Public', followersUrl],
       object: {
-        type: "Note",
+        type: 'Note',
         content: htmlContent,
       },
     }),
   })
     .then((response) => {
-      if (response.headers.get("Location")) {
+      if (response.headers.get('Location')) {
+        window.location.reload();
+      }
+    })
+    .catch((error) => {
+      console.log(error);
+    });
+});
+
+const updateMicroblogStatusFormElement = window.document.querySelector(
+  '[data-action="update-microblog-status"]',
+);
+
+updateMicroblogStatusFormElement?.addEventListener('submit', (event) => {
+  event.preventDefault();
+
+  const outboxUrl =
+    updateMicroblogStatusFormElement.getAttribute('action') ?? '';
+  const followersUrl =
+    updateMicroblogStatusFormElement.getAttribute('data-followers-url') ?? '';
+  const actorId =
+    updateMicroblogStatusFormElement.getAttribute('data-actor-id') ?? '';
+  const objectId =
+    updateMicroblogStatusFormElement.getAttribute('data-object-id') ?? '';
+  const content =
+    updateMicroblogStatusFormElement.querySelector<HTMLTextAreaElement>(
+      '[name="content"]',
+    )?.value ?? '';
+
+  const converter = new showdown.Converter();
+  const htmlContent = converter.makeHtml(content);
+
+  fetch(outboxUrl, {
+    method: 'POST',
+    headers: {
+      Accept: 'application/activity+json',
+    },
+    body: JSON.stringify({
+      '@context': ['https://www.w3.org/ns/activitystreams'],
+      type: 'Update',
+      actor: actorId,
+      to: ['https://www.w3.org/ns/activitystreams#Public', followersUrl],
+      object: {
+        id: objectId,
+        content: htmlContent,
+      },
+    }),
+  })
+    .then((response) => {
+      if (response.headers.get('Location')) {
+        window.location.reload();
+      }
+    })
+    .catch((error) => {
+      console.log(error);
+    });
+});
+
+const deleteMicroblogStatusFormElement = window.document.querySelector(
+  '[data-action="delete-microblog-status"]',
+);
+
+deleteMicroblogStatusFormElement?.addEventListener('submit', (event) => {
+  event.preventDefault();
+
+  const outboxUrl =
+    deleteMicroblogStatusFormElement.getAttribute('action') ?? '';
+  const followersUrl =
+    deleteMicroblogStatusFormElement.getAttribute('data-followers-url') ?? '';
+  const actorId =
+    deleteMicroblogStatusFormElement.getAttribute('data-actor-id') ?? '';
+  const objectId =
+    deleteMicroblogStatusFormElement.getAttribute('data-object-id') ?? '';
+
+  fetch(outboxUrl, {
+    method: 'POST',
+    headers: {
+      Accept: 'application/activity+json',
+    },
+    body: JSON.stringify({
+      '@context': ['https://www.w3.org/ns/activitystreams'],
+      type: 'Delete',
+      actor: actorId,
+      to: ['https://www.w3.org/ns/activitystreams#Public', followersUrl],
+      object: objectId,
+    }),
+  })
+    .then((response) => {
+      if (response.headers.get('Location')) {
         window.location.reload();
       }
     })
@@ -97,51 +185,141 @@ newMicroblogStatusFormElement?.addEventListener("submit", (event) => {
 });
 
 const newBlogPostFormElement = window.document.querySelector(
-  '[data-action="new-blog-post"]'
+  '[data-action="new-blog-post"]',
 );
 
-newBlogPostFormElement?.addEventListener("submit", (event) => {
+newBlogPostFormElement?.addEventListener('submit', (event) => {
   event.preventDefault();
 
-  const outboxUrl = newBlogPostFormElement.getAttribute("action") ?? "";
+  const outboxUrl = newBlogPostFormElement.getAttribute('action') ?? '';
   const followersUrl =
-    newBlogPostFormElement.getAttribute("data-followers-url") ?? "";
-  const actorId = newBlogPostFormElement.getAttribute("data-actor-id") ?? "";
+    newBlogPostFormElement.getAttribute('data-followers-url') ?? '';
+  const actorId = newBlogPostFormElement.getAttribute('data-actor-id') ?? '';
   const summary =
     newBlogPostFormElement.querySelector<HTMLInputElement>('[name="summary"]')
-      ?.value ?? "";
+      ?.value ?? '';
   const content =
     newBlogPostFormElement.querySelector<HTMLTextAreaElement>(
-      '[name="content"]'
-    )?.value ?? "";
+      '[name="content"]',
+    )?.value ?? '';
 
   const converter = new showdown.Converter();
   const htmlContent = converter.makeHtml(content);
   const htmlSummary = converter.makeHtml(summary);
 
   fetch(outboxUrl, {
-    method: "POST",
+    method: 'POST',
     headers: {
-      Accept: "application/activity+json",
+      Accept: 'application/activity+json',
     },
     body: JSON.stringify({
-      "@context": ["https://www.w3.org/ns/activitystreams"],
-      type: "Create",
+      '@context': ['https://www.w3.org/ns/activitystreams'],
+      type: 'Create',
       actor: actorId,
-      to: ["https://www.w3.org/ns/activitystreams#Public", followersUrl],
+      to: ['https://www.w3.org/ns/activitystreams#Public', followersUrl],
       object: {
-        type: "Article",
+        type: 'Article',
         summary: htmlSummary,
         content: htmlContent,
         source: {
           content,
-          mediaType: "text/markdown",
+          mediaType: 'text/markdown',
         },
       },
     }),
   })
     .then((response) => {
-      if (response.headers.get("Location")) {
+      if (response.headers.get('Location')) {
+        window.location.reload();
+      }
+    })
+    .catch((error) => {
+      console.log(error);
+    });
+});
+
+const updateBlogPostFormElement = window.document.querySelector(
+  '[data-action="update-blog-post"]',
+);
+
+updateBlogPostFormElement?.addEventListener('submit', (event) => {
+  event.preventDefault();
+
+  const outboxUrl = updateBlogPostFormElement.getAttribute('action') ?? '';
+  const followersUrl =
+    updateBlogPostFormElement.getAttribute('data-followers-url') ?? '';
+  const actorId = updateBlogPostFormElement.getAttribute('data-actor-id') ?? '';
+  const objectId =
+    updateBlogPostFormElement.getAttribute('data-object-id') ?? '';
+  const summary =
+    updateBlogPostFormElement.querySelector<HTMLTextAreaElement>(
+      '[name="summary"]',
+    )?.value ?? '';
+  const content =
+    updateBlogPostFormElement.querySelector<HTMLTextAreaElement>(
+      '[name="content"]',
+    )?.value ?? '';
+
+  const converter = new showdown.Converter();
+  const htmlContent = converter.makeHtml(content);
+  const htmlSummary = converter.makeHtml(summary);
+
+  fetch(outboxUrl, {
+    method: 'POST',
+    headers: {
+      Accept: 'application/activity+json',
+    },
+    body: JSON.stringify({
+      '@context': ['https://www.w3.org/ns/activitystreams'],
+      type: 'Update',
+      actor: actorId,
+      to: ['https://www.w3.org/ns/activitystreams#Public', followersUrl],
+      object: {
+        id: objectId,
+        summary: htmlSummary,
+        content: htmlContent,
+      },
+    }),
+  })
+    .then((response) => {
+      if (response.headers.get('Location')) {
+        window.location.reload();
+      }
+    })
+    .catch((error) => {
+      console.log(error);
+    });
+});
+
+const deleteBlogPostFormElement = window.document.querySelector(
+  '[data-action="delete-blog-post"]',
+);
+
+deleteBlogPostFormElement?.addEventListener('submit', (event) => {
+  event.preventDefault();
+
+  const outboxUrl = deleteBlogPostFormElement.getAttribute('action') ?? '';
+  const followersUrl =
+    deleteBlogPostFormElement.getAttribute('data-followers-url') ?? '';
+  const actorId = deleteBlogPostFormElement.getAttribute('data-actor-id') ?? '';
+  const objectId =
+    deleteBlogPostFormElement.getAttribute('data-object-id') ?? '';
+
+  fetch(outboxUrl, {
+    method: 'POST',
+    headers: {
+      Accept: 'application/activity+json',
+    },
+    body: JSON.stringify({
+      '@context': ['https://www.w3.org/ns/activitystreams'],
+      type: 'Delete',
+      actor: actorId,
+      to: ['https://www.w3.org/ns/activitystreams#Public', followersUrl],
+      object: objectId,
+    }),
+  })
+    .then((response) => {
+      if (response.headers.get('Location')) {
         window.location.reload();
       }
     })

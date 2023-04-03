@@ -15,7 +15,12 @@ import { NodeCryptoAdapter } from 'activitypub-core-crypto-node';
 import { FtpStorageAdapter } from 'activitypub-core-storage-ftp';
 import { DeliveryAdapter } from 'activitypub-core-delivery';
 import { streamToString } from 'activitypub-core-utilities';
-import { assertIsApCollection } from 'activitypub-core-types';
+import { getId } from 'activitypub-core-utilities';
+import {
+  assertIsApCollection,
+  assertIsApExtendedObject,
+  assertIsApType,
+} from 'activitypub-core-types';
 
 // Monkey-patch showdown.
 import { JSDOM } from 'jsdom';
@@ -216,6 +221,76 @@ import { JSDOM } from 'jsdom';
 
       plugins: [
         {
+          async getHomePageProps(actor: AP.Actor) {
+            const outbox = await this.adapters.db.expandCollection(
+              actor.outbox,
+            );
+
+            assertIsApCollection(outbox);
+
+            if (
+              !('orderedItems' in outbox) ||
+              !Array.isArray(outbox.orderedItems)
+            ) {
+              return {};
+            }
+
+            const props = {
+              attributedTo: await this.adapters.db.findEntityById(
+                getId(outbox.attributedTo),
+              ),
+              notes: (
+                await Promise.all(
+                  outbox.orderedItems.map(async (item) => {
+                    try {
+                      assertIsApType<AP.Create>(item, AP.ActivityTypes.CREATE);
+                      assertIsApType<AP.Note>(
+                        item.object,
+                        AP.ExtendedObjectTypes.NOTE,
+                      );
+                      const objectId = getId(item.object);
+                      return await this.adapters.db.findEntityById(objectId);
+                    } catch (error) {
+                      return null;
+                    }
+                  }),
+                )
+              ).filter(
+                (note: AP.Note | null) => !!note && note.type === 'Note',
+              ),
+
+              articles: (
+                await Promise.all(
+                  outbox.orderedItems.map(async (item) => {
+                    try {
+                      assertIsApType<AP.Create>(item, AP.ActivityTypes.CREATE);
+                      assertIsApType<AP.Article>(
+                        item.object,
+                        AP.ExtendedObjectTypes.ARTICLE,
+                      );
+                      const objectId = getId(item.object);
+                      return await this.adapters.db.findEntityById(objectId);
+                    } catch (error) {
+                      return null;
+                    }
+                  }),
+                )
+              ).filter(
+                (article: AP.Article | null) =>
+                  !!article && article.type === 'Article',
+              ),
+            };
+
+            return {
+              feed: [...props.notes, ...props.articles].sort((a, b) => {
+                assertIsApExtendedObject(a);
+                assertIsApExtendedObject(b);
+
+                return b.published?.valueOf() - a.published?.valueOf();
+              }),
+              ...props,
+            };
+          },
           async getEntityPageProps(entity) {
             if (
               entity.name === 'Outbox' &&
@@ -223,12 +298,75 @@ import { JSDOM } from 'jsdom';
             ) {
               assertIsApCollection(entity);
 
+              const outbox = await this.adapters.db.expandCollection(entity);
+
+              if (
+                !('orderedItems' in outbox) ||
+                !Array.isArray(outbox.orderedItems)
+              ) {
+                return {};
+              }
+
+              const props = {
+                attributedTo: await this.adapters.db.findEntityById(
+                  getId(outbox.attributedTo),
+                ),
+                notes: (
+                  await Promise.all(
+                    outbox.orderedItems.map(async (item) => {
+                      try {
+                        assertIsApType<AP.Create>(
+                          item,
+                          AP.ActivityTypes.CREATE,
+                        );
+                        assertIsApType<AP.Note>(
+                          item.object,
+                          AP.ExtendedObjectTypes.NOTE,
+                        );
+                        const objectId = getId(item.object);
+                        return await this.adapters.db.findEntityById(objectId);
+                      } catch (error) {
+                        return null;
+                      }
+                    }),
+                  )
+                ).filter(
+                  (note: AP.Note | null) => !!note && note.type === 'Note',
+                ),
+
+                articles: (
+                  await Promise.all(
+                    outbox.orderedItems.map(async (item) => {
+                      try {
+                        assertIsApType<AP.Create>(
+                          item,
+                          AP.ActivityTypes.CREATE,
+                        );
+                        assertIsApType<AP.Article>(
+                          item.object,
+                          AP.ExtendedObjectTypes.ARTICLE,
+                        );
+                        const objectId = getId(item.object);
+                        return await this.adapters.db.findEntityById(objectId);
+                      } catch (error) {
+                        return null;
+                      }
+                    }),
+                  )
+                ).filter(
+                  (article: AP.Article | null) =>
+                    !!article && article.type === 'Article',
+                ),
+              };
+
               return {
-                actor:
-                  entity.attributedTo instanceof URL
-                    ? await this.adapters.db.findEntityById(entity.attributedTo)
-                    : null,
-                outbox: await this.adapters.db.expandCollection(entity),
+                feed: [...props.notes, ...props.articles].sort((a, b) => {
+                  assertIsApExtendedObject(a);
+                  assertIsApExtendedObject(b);
+
+                  return b.published?.valueOf() - a.published?.valueOf();
+                }),
+                ...props,
               };
             }
           },

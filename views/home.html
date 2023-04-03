@@ -67,6 +67,64 @@
   </form>
 </details>
 
+<details>
+  <summary>
+    Recent Microblog Statuses
+  </summary>
+  <ul>
+    {% for item in notes %}
+      <li>
+        {% if item.type === 'Tombstone' %}
+        <p>
+          <a href="{{ item.url }}">
+            Deleted.
+          </a>
+        </p>
+        {% else %}
+          <details>
+            <summary>
+              {{ item.content | striptags }}
+            </summary>
+            <div>
+              <h3>
+                Update Microblog Status
+              </h3>
+              <form
+                novalidate
+                action="{{ actor.outbox.url }}"
+                data-action="update-microblog-status"
+                method="POST"
+                data-actor-id="{{ actor.id }}"
+                data-followers-url="{{ actor.followers }}"
+                data-object-id="{{ item.id }}">
+                <textarea name="content" rows="6" aria-label="Microblog Status">{{ item.content | toMarkdown }}</textarea>
+                <button type="submit">
+                  Update
+                </button>
+              </form>
+              <form
+                novalidate
+                action="{{ actor.outbox.url }}"
+                data-action="delete-microblog-status"
+                method="POST"
+                data-actor-id="{{ actor.id }}"
+                data-followers-url="{{ actor.followers }}"
+                data-object-id="{{ item.id }}">
+                <button type="submit">
+                  Delete
+                </button>
+              </form>
+              <a href="{{ item.url }}">
+                View
+              </a>
+            </div>
+          </details>
+        {% endif %}
+      </li>
+    {% endfor %}
+  </ul>
+</details>
+
 <details open>
   <summary>
     New Blog Post
@@ -94,5 +152,74 @@
       Post
     </button>
   </form>
+</details>
+
+<details>
+  <summary>
+    Recent Blog Posts
+  </summary>
+  <ul>
+    {% for item in articles %}
+      <li>
+        {% if item.type === 'Tombstone' %}
+        <p>
+          <a href="{{ item.url }}">
+            Deleted.
+          </a>
+        </p>
+        {% else %}
+          <details>
+            <summary>
+              {{ item.summary | striptags }}
+            </summary>
+            <div>
+              <h3>
+                Update Blog Post
+              </h3>
+              <form
+                novalidate
+                action="{{ actor.outbox.url }}"
+                data-action="update-blog-post"
+                method="POST"
+                data-actor-id="{{ actor.id }}"
+                data-followers-url="{{ actor.followers }}"
+                data-object-id="{{ item.id }}">
+                <label class="label">
+                  <span class="label-text">
+                    Title
+                  </span>
+                  <textarea name="summary">{{ item.summary | toMarkdown }}</textarea>
+                </label>
+                <label class="label">
+                  <span class="label-text">
+                    Body
+                  </span>
+                  <textarea name="content" rows="6">{{ item.content | toMarkdown }}</textarea>
+                </label>
+                <button type="submit">
+                  Update
+                </button>
+              </form>
+              <form
+                novalidate
+                action="{{ actor.outbox.url }}"
+                data-action="delete-blog-post"
+                method="POST"
+                data-actor-id="{{ actor.id }}"
+                data-followers-url="{{ actor.followers }}"
+                data-object-id="{{ item.id }}">
+                <button type="submit">
+                  Delete
+                </button>
+              </form>
+              <a href="{{ item.url }}">
+                View
+              </a>
+            </div>
+          </details>
+        {% endif %}
+      </li>
+    {% endfor %}
+  </ul>
 </details>
 <script type="module" src="/home.js"></script>
