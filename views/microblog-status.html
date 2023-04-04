@@ -24,11 +24,29 @@
       <a href="{{ likes.url }}">
         {{ likes.totalItems }} Likes
       </a>
+      {% if likes.orderedItems.length %}
+        <ul>
+          {% for item in likes.orderedItems %}
+            <a href="{{ item.url }}">
+              {{ item.actor }}
+            </a>
+          {% endfor %}
+        </ul>
+      {% endif %}
     </li>
     <li>
       <a href="{{ shares.url }}">
         {{ shares.totalItems }} Shares
       </a>
+      {% if shares.orderedItems.length %}
+        <ul>
+          {% for item in shares.orderedItems %}
+            <a href="{{ item.url }}">
+              {{ item.actor }}
+            </a>
+          {% endfor %}
+        </ul>
+      {% endif %}
     </li>
     <li>
       <a href="{{ replies.url }}">
