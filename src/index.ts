@@ -328,6 +328,22 @@ import { JSDOM } from 'jsdom';
               const replies = await this.adapters.db.expandCollection(
                 indexedReplies,
               );
+              assertIsApType<AP.OrderedCollection>(
+                replies,
+                AP.CollectionTypes.ORDERED_COLLECTION,
+              );
+
+              assertIsArray(replies.orderedItems);
+
+              const expandedReplies = await Promise.all(
+                replies.orderedItems.map(async (item) => {
+                  if (item instanceof URL) {
+                    return await this.adapters.db.queryById(item);
+                  }
+
+                  return item;
+                }),
+              );
 
               const sharesId = getId(entity.shares);
               const indexedShares = await this.adapters.db.findEntityById(
@@ -338,30 +354,13 @@ import { JSDOM } from 'jsdom';
                 indexedShares,
               );
 
-              assertIsApType<AP.OrderedCollection>(
-                shares,
-                AP.CollectionTypes.ORDERED_COLLECTION,
-              );
-
-              assertIsArray(shares.orderedItems);
-
-              const expandedShares = await Promise.all(
-                shares.orderedItems.map(async (item) => {
-                  if (item instanceof URL) {
-                    return await this.adapters.db.queryById(item);
-                  }
-
-                  return item;
-                }),
-              );
-
               return {
                 likes,
-                replies,
-                shares: {
-                  ...shares,
-                  orderedItems: expandedShares,
+                replies: {
+                  ...replies,
+                  orderedItems: expandedReplies,
                 },
+                shares,
               };
             } else if (
               entity.name === 'Outbox' &&
