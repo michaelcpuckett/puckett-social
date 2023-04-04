@@ -338,7 +338,18 @@ import { JSDOM } from 'jsdom';
               const expandedReplies = await Promise.all(
                 replies.orderedItems.map(async (item) => {
                   if (item instanceof URL) {
-                    return await this.adapters.db.queryById(item);
+                    try {
+                      const reply = await this.adapters.db.queryById(item);
+                      assertIsApExtendedObject(reply);
+                      const replyActorId = getId(reply.attributedTo);
+                      const replyActor = await this.adapters.db.queryById(
+                        replyActorId,
+                      );
+                      reply.attributedTo = replyActor;
+                      return reply;
+                    } catch (error) {
+                      return item;
+                    }
                   }
 
                   return item;

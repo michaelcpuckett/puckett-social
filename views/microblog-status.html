@@ -55,9 +55,9 @@
       {% if replies.orderedItems.length %}
         <ul>
           {% for item in replies.orderedItems %}
-            <a href="{{ item.actor.url }}">
-              @{{ item.actor.preferredUsername }}@{{ item.actor.url | getDomain }}
-              <q>{{ item.content | safe }}</q>
+            <a href="{{ item.attributedTo.url }}">
+              @{{ item.attributedTo.preferredUsername }}@{{ item.attributedTo.url | getDomain }}
+              <blockquote>{{ item.content | safe }}</blockquote>
             </a>
           {% endfor %}
         </ul>
