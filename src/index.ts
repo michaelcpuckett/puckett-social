@@ -383,10 +383,16 @@ import { JSDOM } from 'jsdom';
                   ...replies.orderedItems,
                   ...shares.orderedItems,
                 ].sort((a, b) => {
-                  assertIsApExtendedObject(a);
-                  assertIsApExtendedObject(b);
-
-                  return b.published?.valueOf() - a.published?.valueOf();
+                  if (
+                    typeof a === 'object' &&
+                    typeof b === 'object' &&
+                    'published' in b &&
+                    'published' in a
+                  ) {
+                    return b.published?.valueOf() - a.published?.valueOf();
+                  } else {
+                    return 0;
+                  }
                 });
 
                 return {
