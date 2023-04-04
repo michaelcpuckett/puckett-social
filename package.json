@@ -19,7 +19,7 @@
     }
   },
   "dependencies": {
-    "activitypub-core-auth-crypto": "^0.2.63",
+    "activitypub-core-auth-crypto": "^0.2.66",
     "activitypub-core-crypto-node": "^0.2.61",
     "activitypub-core-db-mongo": "^0.2.61",
     "activitypub-core-delivery": "^0.2.61",
