@@ -19,13 +19,14 @@
 <aside aria-labelledby="aside-h2">
   <h2 id="aside-h2">
     <a href="https://activitypub.rocks" target="_blank">
-      Federated Interactions
+      Federated
     </a>
+    Interactions
   </h2>
   <ul>
     <li>
       <a href="{{ likes.url }}">
-        {{ likes.totalItems }} Likes
+        Likes: {{ likes.totalItems }}
       </a>
       {% if likes.orderedItems.length %}
         <ul>
@@ -33,13 +34,16 @@
             <a href="{{ item.actor.url }}">
               @{{ item.actor.preferredUsername }}@{{ item.actor.url | getDomain }}
             </a>
+            <a href="{{ item.url }}">
+              liked the post.
+            </a>
           {% endfor %}
         </ul>
       {% endif %}
     </li>
     <li>
       <a href="{{ shares.url }}">
-        {{ shares.totalItems }} Shares
+        Shares: {{ shares.totalItems }}
       </a>
       {% if shares.orderedItems.length %}
         <ul>
@@ -47,21 +51,27 @@
             <a href="{{ item.actor.url }}">
               @{{ item.actor.preferredUsername }}@{{ item.actor.url | getDomain }}
             </a>
+            <a href="{{ item.url }}">
+              shared the post.
+            </a>
           {% endfor %}
         </ul>
       {% endif %}
     </li>
     <li>
       <a href="{{ replies.url }}">
-        {{ replies.totalItems }} Replies
+        Replies: {{ replies.totalItems }}
       </a>
       {% if replies.orderedItems.length %}
         <ul>
           {% for item in replies.orderedItems %}
-            <a href="{{ item.actor.url }}">
-              @{{ item.actor.preferredUsername }}@{{ item.actor.url | getDomain }}
-              <q>{{ item.content | safe }}</q>
+            <a href="{{ item.attributedTo.url }}">
+              @{{ item.attributedTo.preferredUsername }}@{{ item.attributedTo.url | getDomain }}
             </a>
+            <a href="{{ item.url }}">
+              replied to the post:
+            </a>
+            <blockquote>{{ item.content | safe }}</blockquote>
           {% endfor %}
         </ul>
       {% endif %}
