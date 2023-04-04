@@ -18,65 +18,51 @@
 <hr role="none" />
 <aside aria-labelledby="aside-h2">
   <h2 id="aside-h2">
-    <a href="https://activitypub.rocks" target="_blank">
-      Federated
-    </a>
-    Interactions
+    <a href="https://activitypub.rocks" target="_blank">Federated</a> Interactions
   </h2>
   <ul>
     <li>
       <a href="{{ likes.url }}">
         Likes: {{ likes.totalItems }}
       </a>
-      {% if likes.orderedItems.length %}
-        <ul>
-          {% for item in likes.orderedItems %}
-            <a href="{{ item.actor.url }}">
-              @{{ item.actor.preferredUsername }}@{{ item.actor.url | getDomain }}
-            </a>
-            <a href="{{ item.url }}">
-              liked the post.
-            </a>
-          {% endfor %}
-        </ul>
-      {% endif %}
     </li>
     <li>
       <a href="{{ shares.url }}">
         Shares: {{ shares.totalItems }}
       </a>
-      {% if shares.orderedItems.length %}
-        <ul>
-          {% for item in shares.orderedItems %}
-            <a href="{{ item.actor.url }}">
-              @{{ item.actor.preferredUsername }}@{{ item.actor.url | getDomain }}
-            </a>
-            <a href="{{ item.url }}">
-              shared the post.
-            </a>
-          {% endfor %}
-        </ul>
-      {% endif %}
     </li>
     <li>
       <a href="{{ replies.url }}">
         Replies: {{ replies.totalItems }}
       </a>
-      {% if replies.orderedItems.length %}
-        <ul>
-          {% for item in replies.orderedItems %}
-            <a href="{{ item.attributedTo.url }}">
-              @{{ item.attributedTo.preferredUsername }}@{{ item.attributedTo.url | getDomain }}
-            </a>
-            <a href="{{ item.url }}">
-              replied to the post:
-            </a>
-            <blockquote>{{ item.content | safe }}</blockquote>
-          {% endfor %}
-        </ul>
-      {% endif %}
     </li>
   </ul>
+  
+  {% if feed.length %}
+    <h2>Interaction Feed</h2>
+    <div role="feed">
+      {% for item in feed %}
+        <article>
+          <a href="{{ item.actor.url or item.attributedTo.url }}">
+            @{{ item.actor.preferredUsername or item.attributedTo.preferredUsername }}@{{ (item.actor.url or item.attributedTo.url) | getDomain }}
+          </a>
+          <a href="{{ item.url }}">
+            {% if item.type == 'Like' %}
+              liked
+            {% elif item.type == 'Announce' %}
+              shared
+            {% else %}
+              replied to
+            {% endif %}
+            the post.
+          </a>
+          {% if item.content %}
+            <blockquote>{{ item.content | safe }}</blockquote>
+          {% endif %}
+        </article>
+      {% endfor %}
+    </div>
+  {% endif %}
 </aside>
 <hr role="none" />
 <footer>
