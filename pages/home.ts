@@ -273,7 +273,6 @@ newBlogPostFormElement?.addEventListener('submit', (event) => {
 
   const converter = new showdown.Converter();
   const htmlContent = converter.makeHtml(content);
-  const htmlSummary = converter.makeHtml(summary);
 
   fetch(outboxUrl, {
     method: 'POST',
@@ -287,7 +286,7 @@ newBlogPostFormElement?.addEventListener('submit', (event) => {
       to: ['https://www.w3.org/ns/activitystreams#Public', followersUrl],
       object: {
         type: 'Article',
-        summary: htmlSummary,
+        summary,
         content: htmlContent,
         source: {
           content,
@@ -330,7 +329,6 @@ updateBlogPostFormElement?.addEventListener('submit', (event) => {
 
   const converter = new showdown.Converter();
   const htmlContent = converter.makeHtml(content);
-  const htmlSummary = converter.makeHtml(summary);
 
   fetch(outboxUrl, {
     method: 'POST',
@@ -344,7 +342,7 @@ updateBlogPostFormElement?.addEventListener('submit', (event) => {
       to: ['https://www.w3.org/ns/activitystreams#Public', followersUrl],
       object: {
         id: objectId,
-        summary: htmlSummary,
+        summary,
         content: htmlContent,
       },
     }),
