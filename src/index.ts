@@ -107,6 +107,14 @@ import { JSDOM } from 'jsdom';
     return converter.makeMarkdown(string);
   });
 
+  nunjucksConfig.addFilter('getDomain', (string: string) => {
+    if (!string) {
+      return '';
+    }
+
+    return new URL(string).hostname;
+  });
+
   // activitypub-core Plugins.
 
   // FTP Storage adapter plugin.

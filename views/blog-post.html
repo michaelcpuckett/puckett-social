@@ -27,11 +27,29 @@
       <a href="{{ likes.url }}">
         {{ likes.totalItems }} Likes
       </a>
+      {% if likes.orderedItems.length %}
+        <ul>
+          {% for item in likes.orderedItems %}
+            <a href="{{ item.url }}">
+              @{{ item.actor.preferredUsername }}@{{ item.actor.url | getDomain }}
+            </a>
+          {% endfor %}
+        </ul>
+      {% endif %}
     </li>
     <li>
       <a href="{{ shares.url }}">
         {{ shares.totalItems }} Shares
       </a>
+      {% if shares.orderedItems.length %}
+        <ul>
+          {% for item in shares.orderedItems %}
+            <a href="{{ item.url }}">
+              @{{ item.actor.preferredUsername }}@{{ item.actor.url | getDomain }}
+            </a>
+          {% endfor %}
+        </ul>
+      {% endif %}
     </li>
     <li>
       <a href="{{ replies.url }}">
@@ -41,7 +59,8 @@
         <ul>
           {% for item in replies.orderedItems %}
             <a href="{{ item.url }}">
-              {{ item.actor }}: <q>{{ item.content | safe }}</q>
+              @{{ item.actor.preferredUsername }}@{{ item.actor.url | getDomain }}:
+              <q>{{ item.content | safe }}</q>
             </a>
           {% endfor %}
         </ul>
