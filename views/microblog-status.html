@@ -55,6 +55,7 @@
       {% if replies.orderedItems.length %}
         <ul>
           {% for item in replies.orderedItems %}
+            <textarea>{{ item | dump }}</textarea>
             <a href="{{ item.actor.url }}">
               @{{ item.actor.preferredUsername }}@{{ item.actor.url | getDomain }}
               <q>{{ item.content | safe }}</q>
