@@ -309,70 +309,98 @@ import { JSDOM } from 'jsdom';
               entity.type === AP.ExtendedObjectTypes.NOTE ||
               entity.type === AP.ExtendedObjectTypes.ARTICLE
             ) {
-              assertIsApExtendedObject(entity);
+              try {
+                assertIsApExtendedObject(entity);
 
-              const likesId = getId(entity.likes);
-              const indexedLikes = await this.adapters.db.findEntityById(
-                likesId,
-              );
-              assertIsApCollection(indexedLikes);
-              const likes = await this.adapters.db.expandCollection(
-                indexedLikes,
-              );
+                const likesId = getId(entity.likes);
+                const indexedLikes = await this.adapters.db.findEntityById(
+                  likesId,
+                );
+                assertIsApCollection(indexedLikes);
+                const likes = await this.adapters.db.expandCollection(
+                  indexedLikes,
+                );
 
-              const repliesId = getId(entity.replies);
-              const indexedReplies = await this.adapters.db.findEntityById(
-                repliesId,
-              );
-              assertIsApCollection(indexedReplies);
-              const replies = await this.adapters.db.expandCollection(
-                indexedReplies,
-              );
-              assertIsApType<AP.OrderedCollection>(
-                replies,
-                AP.CollectionTypes.ORDERED_COLLECTION,
-              );
+                const repliesId = getId(entity.replies);
+                const indexedReplies = await this.adapters.db.findEntityById(
+                  repliesId,
+                );
+                assertIsApCollection(indexedReplies);
+                const replies = await this.adapters.db.expandCollection(
+                  indexedReplies,
+                );
+                assertIsApType<AP.OrderedCollection>(
+                  replies,
+                  AP.CollectionTypes.ORDERED_COLLECTION,
+                );
 
-              assertIsArray(replies.orderedItems);
+                assertIsArray(replies.orderedItems);
 
-              const expandedReplies = await Promise.all(
-                replies.orderedItems.map(async (item) => {
-                  if (item instanceof URL) {
-                    try {
-                      const reply = await this.adapters.db.queryById(item);
-                      assertIsApExtendedObject(reply);
-                      const replyActorId = getId(reply.attributedTo);
-                      const replyActor = await this.adapters.db.queryById(
-                        replyActorId,
-                      );
-                      reply.attributedTo = replyActor;
-                      return reply;
-                    } catch (error) {
-                      return item;
+                const expandedReplies = await Promise.all(
+                  replies.orderedItems.map(async (item) => {
+                    if (item instanceof URL) {
+                      try {
+                        const reply = await this.adapters.db.queryById(item);
+                        assertIsApExtendedObject(reply);
+                        const replyActorId = getId(reply.attributedTo);
+                        const replyActor = await this.adapters.db.queryById(
+                          replyActorId,
+                        );
+                        reply.attributedTo = replyActor;
+                        return reply;
+                      } catch (error) {
+                        return item;
+                      }
                     }
-                  }
 
-                  return item;
-                }),
-              );
+                    return item;
+                  }),
+                );
 
-              const sharesId = getId(entity.shares);
-              const indexedShares = await this.adapters.db.findEntityById(
-                sharesId,
-              );
-              assertIsApCollection(indexedShares);
-              const shares = await this.adapters.db.expandCollection(
-                indexedShares,
-              );
+                const sharesId = getId(entity.shares);
+                const indexedShares = await this.adapters.db.findEntityById(
+                  sharesId,
+                );
+                assertIsApCollection(indexedShares);
+                const shares = await this.adapters.db.expandCollection(
+                  indexedShares,
+                );
 
-              return {
-                likes,
-                replies: {
-                  ...replies,
-                  orderedItems: expandedReplies,
-                },
-                shares,
-              };
+                assertIsApType<AP.OrderedCollection>(
+                  likes,
+                  AP.CollectionTypes.ORDERED_COLLECTION,
+                );
+                assertIsApType<AP.OrderedCollection>(
+                  shares,
+                  AP.CollectionTypes.ORDERED_COLLECTION,
+                );
+
+                assertIsArray(likes.orderedItems);
+                assertIsArray(shares.orderedItems);
+
+                const feed = [
+                  ...likes.orderedItems,
+                  ...replies.orderedItems,
+                  ...shares.orderedItems,
+                ].sort((a, b) => {
+                  assertIsApExtendedObject(a);
+                  assertIsApExtendedObject(b);
+
+                  return b.published?.valueOf() - a.published?.valueOf();
+                });
+
+                return {
+                  feed,
+                  likes,
+                  replies: {
+                    ...replies,
+                    orderedItems: expandedReplies,
+                  },
+                  shares,
+                };
+              } catch (error) {
+                return {};
+              }
             } else if (
               entity.name === 'Outbox' &&
               entity.type === AP.CollectionTypes.ORDERED_COLLECTION
