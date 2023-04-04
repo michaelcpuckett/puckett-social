@@ -399,6 +399,7 @@ import { JSDOM } from 'jsdom';
                   shares,
                 };
               } catch (error) {
+                console.log(error);
                 return {};
               }
             } else if (
