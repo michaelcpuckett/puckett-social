@@ -30,8 +30,9 @@
       {% if likes.orderedItems.length %}
         <ul>
           {% for item in likes.orderedItems %}
-            <a href="{{ item.url }}">
+            <a href="{{ item.actor.url }}">
               @{{ item.actor.preferredUsername }}@{{ item.actor.url | getDomain }}
+              ({{ item.published | formatDateTimeForDisplay }})
             </a>
           {% endfor %}
         </ul>
@@ -44,8 +45,9 @@
       {% if shares.orderedItems.length %}
         <ul>
           {% for item in shares.orderedItems %}
-            <a href="{{ item.url }}">
+            <a href="{{ item.actor.url }}">
               @{{ item.actor.preferredUsername }}@{{ item.actor.url | getDomain }}
+              ({{ item.published | formatDateTimeForDisplay }})
             </a>
           {% endfor %}
         </ul>
@@ -58,8 +60,9 @@
       {% if replies.orderedItems.length %}
         <ul>
           {% for item in replies.orderedItems %}
-            <a href="{{ item.url }}">
-              @{{ item.actor.preferredUsername }}@{{ item.actor.url | getDomain }}:
+            <a href="{{ item.actor.url }}">
+              @{{ item.actor.preferredUsername }}@{{ item.actor.url | getDomain }}
+              ({{ item.published | formatDateTimeForDisplay }}):
               <q>{{ item.content | safe }}</q>
             </a>
           {% endfor %}
