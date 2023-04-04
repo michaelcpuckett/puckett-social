@@ -379,7 +379,7 @@ import { JSDOM } from 'jsdom';
     }),
   );
 
-  app.listen(process.env.AP_PORT ?? 3000, () => {
+  app.listen(process.env.PORT ?? process.env.AP_PORT ?? 3000, () => {
     console.log('Running...');
   });
 })();
