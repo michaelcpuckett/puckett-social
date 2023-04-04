@@ -297,6 +297,44 @@ import { JSDOM } from 'jsdom';
           },
           async getEntityPageProps(entity) {
             if (
+              entity.type === AP.ExtendedObjectTypes.NOTE ||
+              entity.type === AP.ExtendedObjectTypes.ARTICLE
+            ) {
+              assertIsApExtendedObject(entity);
+
+              const likesId = getId(entity.likes);
+              const indexedLikes = await this.adapters.db.findEntityById(
+                likesId,
+              );
+              assertIsApCollection(indexedLikes);
+              const likes = await this.adapters.db.expandCollection(
+                indexedLikes,
+              );
+
+              const repliesId = getId(entity.replies);
+              const indexedReplies = await this.adapters.db.findEntityById(
+                repliesId,
+              );
+              assertIsApCollection(indexedReplies);
+              const replies = await this.adapters.db.expandCollection(
+                indexedReplies,
+              );
+
+              const sharesId = getId(entity.shares);
+              const indexedShares = await this.adapters.db.findEntityById(
+                sharesId,
+              );
+              assertIsApCollection(indexedShares);
+              const shares = await this.adapters.db.expandCollection(
+                indexedShares,
+              );
+
+              return {
+                likes,
+                replies,
+                shares,
+              };
+            } else if (
               entity.name === 'Outbox' &&
               entity.type === AP.CollectionTypes.ORDERED_COLLECTION
             ) {

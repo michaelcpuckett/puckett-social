@@ -12,6 +12,41 @@
     {{ entity.content | safe }}
   </p>
 </main>
+<hr role="none" />
+<aside aria-labelledby="aside-h2">
+  <h2 id="aside-h2">
+    <a href="https://activitypub.rocks" target="_blank">
+      Federated Interactions
+    </a>
+  </h2>
+  <ul>
+    <li>
+      <a href="{{ likes.url }}">
+        {{ likes.totalItems }} Likes
+      </a>
+    </li>
+    <li>
+      <a href="{{ shares.url }}">
+        {{ shares.totalItems }} Shares
+      </a>
+    </li>
+    <li>
+      <a href="{{ replies.url }}">
+        {{ replies.totalItems }} Replies
+      </a>
+      {% if replies.orderedItems.length %}
+        <ul>
+          {% for item in replies.orderedItems %}
+            <a href="{{ item.url }}">
+              {{ item.actor }}: <q>{{ item.content | safe }}</q>
+            </a>
+          {% endfor %}
+        </ul>
+      {% endif %}
+    </li>
+  </ul>
+</aside>
+<hr role="none" />
 <footer>
   <a href="/">
     Home

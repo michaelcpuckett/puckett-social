@@ -7,10 +7,80 @@
   {{ profilePage() }}
 {% elif entity.name == 'Outbox' %}
   {{ outboxPage() }}
-{% elif entity.type === 'Article' %}
+{% elif entity.type == 'Article' %}
   {{ blogPostPage() }}
-{% elif entity.type === 'Note' %}
+{% elif entity.type == 'Note' %}
   {{ microblogStatusPage() }}
+{% elif entity.type == 'CollectionPage' or entity.type == 'OrderedCollectionPage' %}
+  <!doctype html>
+  <meta charset="utf-8" />
+  <title>{{ entity.name }}</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="stylesheet" href="/public.css" />
+  <main>
+    <h1>
+      {{ entity.name }}
+    </h1>
+    <p>
+      Sorry about this, but since this site is a work in progress,
+      some ActivityPub entities do not yet have HTML representations.
+    </p>
+    <p>
+      Here is the raw JSON-LD data associated with each item in the collection.
+    </p>
+    {% if entity.orderedItems %}
+      {% for item in entity.orderedItems %}
+        <textarea style="width: 100%; font-size: 1em;" rows="10">{{ item | dump }}</textarea>
+      {% endfor %}
+    {% elif entity.items %}
+      {% for item in entity.items %}
+        <textarea style="width: 100%; font-size: 1em;" rows="10">{{ item | dump }}</textarea>
+      {% endfor %}
+    {% endif %}
+  </main>
+  <footer>
+    <p>
+      <a href="{{ entity.first }}">First</a> | 
+      <a href="{{ entity.prev }}">Previous</a> | 
+      <a href="{{ entity.next }}">Next</a> |
+      <a href="{{ entity.last }}">Last</a>
+    </p>
+  </footer>
+{% elif entity.type == 'Collection' or entity.type == 'OrderedCollection' %}
+<!doctype html>
+  <meta charset="utf-8" />
+  <title>{{ entity.name }}</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="stylesheet" href="/public.css" />
+  <main>
+    <h1>
+      {{ entity.name }}
+    </h1>
+    <p>
+      Sorry about this, but since this site is a work in progress,
+      some ActivityPub entities do not yet have HTML representations.
+    </p>
+    <p>
+      You may want to see <a href="{{ entity.first }}">the first page of items in the collection</a>.
+    </p>
+  </main>
 {% else %}
-  Entity.
+  <!doctype html>
+  <meta charset="utf-8" />
+  <title>Not available</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="stylesheet" href="/public.css" />
+  <main>
+    <h1>
+      No HTML view available.
+    </h1>
+    <p>
+      Sorry about this, but since this site is a work in progress,
+      some ActivityPub entities do not yet have HTML representations.
+    </p>
+    <p>
+      Here is the raw JSON-LD data associated with this entity.
+    </p>
+    <textarea style="width: 100%; font-size: 1em;" rows="10">{{ entity | dump }}</textarea>
+  </main>
 {% endif %}
