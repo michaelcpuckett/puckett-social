@@ -17,6 +17,7 @@ import { DeliveryAdapter } from 'activitypub-core-delivery';
 import { streamToString } from 'activitypub-core-utilities';
 import { getId } from 'activitypub-core-utilities';
 import {
+  assertIsArray,
   assertIsApCollection,
   assertIsApExtendedObject,
   assertIsApType,
@@ -337,10 +338,30 @@ import { JSDOM } from 'jsdom';
                 indexedShares,
               );
 
+              assertIsApType<AP.OrderedCollection>(
+                shares,
+                AP.CollectionTypes.ORDERED_COLLECTION,
+              );
+
+              assertIsArray(shares.orderedItems);
+
+              const expandedShares = await Promise.all(
+                shares.orderedItems.map(async (item) => {
+                  if (item instanceof URL) {
+                    return await this.adapters.db.queryById(item);
+                  }
+
+                  return item;
+                }),
+              );
+
               return {
                 likes,
                 replies,
-                shares,
+                shares: {
+                  ...shares,
+                  orderedItems: expandedShares,
+                },
               };
             } else if (
               entity.name === 'Outbox' &&
