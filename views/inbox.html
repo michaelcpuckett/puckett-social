@@ -1,0 +1,15 @@
+{% macro inboxPage() %}
+<!doctype html>
+<meta charset="utf-8" />
+<title>Inbox Feed</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="stylesheet" href="/public.css" />
+<main>
+  <h1>
+    Inbox Feed
+  </h1>
+  {% for item in feed %}
+    <textarea>{{ item | dump }}</textarea>
+  {% endfor %}
+</main>
+{% endmacro %}

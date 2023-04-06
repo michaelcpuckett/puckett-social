@@ -18,6 +18,7 @@ import { streamToString } from 'activitypub-core-utilities';
 import { getId } from 'activitypub-core-utilities';
 import {
   assertIsArray,
+  assertIsApActivity,
   assertIsApCollection,
   assertIsApExtendedObject,
   assertIsApType,
@@ -483,6 +484,39 @@ import { JSDOM } from 'jsdom';
                   return b.published?.valueOf() - a.published?.valueOf();
                 }),
                 ...props,
+              };
+            } else if (
+              entity.name === 'Inbox' &&
+              entity.type === AP.CollectionTypes.ORDERED_COLLECTION
+            ) {
+              assertIsApCollection(entity);
+
+              const inbox = await this.adapters.db.expandCollection(entity);
+
+              if (
+                !('orderedItems' in inbox) ||
+                !Array.isArray(inbox.orderedItems)
+              ) {
+                return {};
+              }
+
+              return {
+                feed: await Promise.all(
+                  inbox.orderedItems.map(async (item) => {
+                    try {
+                      assertIsApActivity(item);
+
+                      return {
+                        ...item,
+                        actor: await this.adapters.db.queryById(
+                          getId(item.actor),
+                        ),
+                      };
+                    } catch (error) {
+                      return item;
+                    }
+                  }),
+                ),
               };
             }
           },

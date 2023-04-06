@@ -2,11 +2,14 @@
 {% from "outbox.html" import outboxPage with context %}
 {% from "blog-post.html" import blogPostPage with context %}
 {% from "microblog-status.html" import microblogStatusPage with context %}
+{% from "inbox.html" import inboxPage with context %}
 
 {% if entity.type == 'Person' %}
   {{ profilePage() }}
 {% elif entity.name == 'Outbox' %}
   {{ outboxPage() }}
+{% elif entity.name == 'Inbox' %}
+  {{ inboxPage() }}
 {% elif entity.type == 'Article' %}
   {{ blogPostPage() }}
 {% elif entity.type == 'Note' %}
