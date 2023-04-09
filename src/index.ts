@@ -14,7 +14,7 @@ import { CryptoAuthAdapter } from 'activitypub-core-auth-crypto';
 import { NodeCryptoAdapter } from 'activitypub-core-crypto-node';
 import { FtpStorageAdapter } from 'activitypub-core-storage-ftp';
 import { DeliveryAdapter } from 'activitypub-core-delivery';
-import { streamToString } from 'activitypub-core-utilities';
+import { isTypeOf, streamToString } from 'activitypub-core-utilities';
 import { getId, isType } from 'activitypub-core-utilities';
 import {
   assertIsArray,
@@ -371,17 +371,37 @@ import { JSDOM } from 'jsdom';
             if (isType(entity, AP.ExtendedObjectTypes.HASHTAG)) {
               assertIsApCollection(entity);
 
-              const posts = await this.adapters.db.expandCollection(entity);
+              const tagged = await this.adapters.db.expandCollection(entity);
 
               if (
-                !('orderedItems' in posts) ||
-                !Array.isArray(posts.orderedItems)
+                !('orderedItems' in tagged) ||
+                !Array.isArray(tagged.orderedItems)
               ) {
                 return {};
               }
 
               return {
-                posts: posts.orderedItems,
+                posts: tagged.orderedItems.filter((item) => {
+                  if (item instanceof URL) {
+                    return false;
+                  }
+
+                  return isTypeOf(item, AP.ExtendedObjectTypes);
+                }),
+                people: tagged.orderedItems.filter((item) => {
+                  if (item instanceof URL) {
+                    return false;
+                  }
+
+                  return isType(item, AP.ActorTypes.PERSON);
+                }),
+                groups: tagged.orderedItems.filter((item) => {
+                  if (item instanceof URL) {
+                    return false;
+                  }
+
+                  return isType(item, AP.ActorTypes.GROUP);
+                }),
               };
             } else if (
               entity.type === AP.ExtendedObjectTypes.NOTE ||
@@ -486,6 +506,18 @@ import { JSDOM } from 'jsdom';
                 console.log(error);
                 return {};
               }
+            } else if (
+              entity.name === 'Hashtags' &&
+              entity.type === AP.CollectionTypes.COLLECTION
+            ) {
+              assertIsApCollection(entity);
+
+              const expandedCollection =
+                await this.adapters.db.expandCollection(entity);
+
+              return {
+                hashtags: expandedCollection.items,
+              };
             } else if (
               entity.name === 'Posts' &&
               entity.type === AP.CollectionTypes.ORDERED_COLLECTION

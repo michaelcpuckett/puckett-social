@@ -85,7 +85,7 @@ const editProfileFormElement = window.document.querySelector(
   'form[data-action="edit-profile"]',
 );
 
-editProfileFormElement?.addEventListener('submit', (event) => {
+editProfileFormElement?.addEventListener('submit', async (event) => {
   event.preventDefault();
 
   const outboxUrl = editProfileFormElement.getAttribute('action') ?? '';
@@ -104,6 +104,36 @@ editProfileFormElement?.addEventListener('submit', (event) => {
   const converter = new showdown.Converter();
   const htmlSummary = converter.makeHtml(summary);
 
+  const strippedSummary = stripHtml(htmlSummary).result;
+
+  const mentions = extractMentions(strippedSummary);
+  const hashtags = extractHashtags(strippedSummary);
+
+  const mentionedActorUrls = await getMentionActorUrls(mentions);
+
+  const mentionObjects = mentions
+    .map((mention) => {
+      const url = mentionedActorUrls[mention];
+
+      if (!url) {
+        return null;
+      }
+
+      return {
+        type: 'Mention',
+        href: url,
+        name: mention,
+      };
+    })
+    .filter((_) => !!_);
+
+  const hashtagObjects = hashtags.map((hashtag) => ({
+    type: 'Hashtag',
+    name: hashtag,
+  }));
+
+  const tags = [...mentionObjects, ...hashtagObjects];
+
   fetch(outboxUrl, {
     method: 'POST',
     headers: {
@@ -117,7 +147,15 @@ editProfileFormElement?.addEventListener('submit', (event) => {
       object: {
         id: actorId,
         name,
-        summary: htmlSummary,
+        summary: await replaceMicrosyntaxWithMarkup(
+          htmlSummary,
+          mentionedActorUrls,
+        ),
+        ...(tags.length
+          ? {
+              tag: tags,
+            }
+          : null),
       },
     }),
   })

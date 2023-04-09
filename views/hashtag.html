@@ -8,17 +8,59 @@
     <h1>
       {{ entity.name }}
     </h1>
-    {% if posts %}
-      {% for item in posts %}
+
+    <details open>
+      <summary>
+        Posts
+      </summary>
+      <div>
+        {% for item in posts %}
         <article class="note">
           <a href="{{ item.url }}">
             <time datetime="{{ item.published | formatDateTime }}">
               {{ item.published | formatDateTimeForDisplay }}
             </time>
           </a>
-          <p>{{ item.content | safe }}</p>
+          <p>{{ (item.summary or item.content) | safe }}</p>
         </article>
       {% endfor %}
-    {% endif %}
+      </div>
+    </details>
+   
+    <hr />
+
+    <details open>
+      <summary>
+        People
+      </summary>
+      <div>
+        {% for item in people %}
+          <article class="note">
+            <a href="{{ item.url }}">
+              @{{ item.preferredUsername }}
+            </a>
+            <blockquote>{{ item.summary | safe }}</blockquote>
+          </article>
+        {% endfor %}
+      </div>
+    </details>
+
+    <hr />
+    
+    <details open>
+      <summary>
+        Groups
+      </summary>
+      <div>
+        {% for item in groups %}
+          <article class="note">
+            <a href="{{ item.url }}">
+              @{{ item.preferredUsername }}
+            </a>
+            <blockquote>{{ item.summary | safe }}</blockquote>
+          </article>
+        {% endfor %}
+      </div>
+    </details>
   </main>
 {% endmacro %}
