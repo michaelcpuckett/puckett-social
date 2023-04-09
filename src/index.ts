@@ -15,7 +15,7 @@ import { NodeCryptoAdapter } from 'activitypub-core-crypto-node';
 import { FtpStorageAdapter } from 'activitypub-core-storage-ftp';
 import { DeliveryAdapter } from 'activitypub-core-delivery';
 import { streamToString } from 'activitypub-core-utilities';
-import { getId } from 'activitypub-core-utilities';
+import { getId, isType } from 'activitypub-core-utilities';
 import {
   assertIsArray,
   assertIsApActivity,
@@ -33,7 +33,7 @@ import { JSDOM } from 'jsdom';
   // Use Express for all routes.
   const app = express.default();
 
-  // Static files.
+  // files.
   app.use(express.static(path.resolve(__dirname, '../static')));
 
   // Sets up Nunjucks views.
@@ -121,10 +121,10 @@ import { JSDOM } from 'jsdom';
 
   // FTP Storage adapter plugin.
 
-  const ftpStorageAdapter = new FtpStorageAdapter(
-    JSON.parse(decodeURIComponent(process.env.AP_FTP_CONFIG)),
-    '/uploads',
-  );
+  const ftpStorageAdapter = new FtpStorageAdapter({
+    ...JSON.parse(decodeURIComponent(process.env.AP_FTP_CONFIG)),
+    path: '/uploads',
+  });
 
   const mongoClient = new MongoClient(
     process.env.AP_MONGO_CLIENT_URL ?? 'mongodb://127.0.0.1:27017',
@@ -190,18 +190,6 @@ import { JSDOM } from 'jsdom';
 
   app.use(
     activityPub({
-      routes: {
-        person: '/profile',
-        inbox: '/feed',
-        outbox: '/',
-        followers: '/followers',
-        following: '/following',
-        liked: '/liked',
-        stream: '/:slug',
-        endpoint: '/:slug',
-        note: '/note/:year/:month/:day/:guid',
-        article: '/article/:slug',
-      },
       pages: {
         login: async (): Promise<string> => {
           return nunjucks.render('login.html');
@@ -233,8 +221,78 @@ import { JSDOM } from 'jsdom';
         storage: ftpStorageAdapter,
       },
 
+      routes: {
+        person: '/about',
+        inbox: '/feed',
+        outbox: '/',
+        followers: '/followers',
+        following: '/following',
+        liked: '/liked',
+        stream: '/:slug',
+        endpoint: '/:slug',
+        note: '/posts/:year/:month/:day/:guid',
+        article: '/blog/:slug',
+        hashtag: '/tags/:slug',
+        serverHashtags: '/tags',
+      },
+
       plugins: [
         {
+          /**
+           * Prevent more than a single user from joining.
+           */
+          async handleCreateUserActor() {
+            const existingPerson = await this.adapters.db.findOne('entity', {
+              type: AP.ActorTypes.PERSON,
+            });
+
+            if (existingPerson) {
+              throw new Error(
+                'This site is configured for a single user only! Delete the database to start over.',
+              );
+            }
+
+            return this.activity;
+          },
+
+          /**
+           * Set up Posts and Blogs as streams.
+           */
+          declareUserActorStreams() {
+            return ['Posts', 'Blog'];
+          },
+
+          /**
+           * Add content to streams manually.
+           */
+          async handleOutboxSideEffect() {
+            if (isType(this.activity, AP.ActivityTypes.CREATE)) {
+              assertIsApType<AP.Create>(this.activity, AP.ActivityTypes.CREATE);
+              assertIsApExtendedObject(this.activity.object);
+
+              if (isType(this.activity.object, AP.ExtendedObjectTypes.NOTE)) {
+                await this.adapters.db.insertOrderedItem(
+                  getId(
+                    await this.adapters.db.getStreamByName(this.actor, 'Posts'),
+                  ),
+                  getId(this.activity.object),
+                );
+              } else if (
+                isType(this.activity.object, AP.ExtendedObjectTypes.ARTICLE)
+              ) {
+                await this.adapters.db.insertOrderedItem(
+                  getId(
+                    await this.adapters.db.getStreamByName(this.actor, 'Blog'),
+                  ),
+                  getId(this.activity.object),
+                );
+              }
+            }
+          },
+
+          /**
+           * Add data to display content in home section.
+           */
           async getHomePageProps(actor: AP.Actor) {
             const outbox = await this.adapters.db.expandCollection(
               actor.outbox,
@@ -305,8 +363,27 @@ import { JSDOM } from 'jsdom';
               ...props,
             };
           },
+
+          /**
+           * Add data to templates manually.
+           */
           async getEntityPageProps(entity) {
-            if (
+            if (isType(entity, AP.ExtendedObjectTypes.HASHTAG)) {
+              assertIsApCollection(entity);
+
+              const posts = await this.adapters.db.expandCollection(entity);
+
+              if (
+                !('orderedItems' in posts) ||
+                !Array.isArray(posts.orderedItems)
+              ) {
+                return {};
+              }
+
+              return {
+                posts: posts.orderedItems,
+              };
+            } else if (
               entity.type === AP.ExtendedObjectTypes.NOTE ||
               entity.type === AP.ExtendedObjectTypes.ARTICLE
             ) {
@@ -409,6 +486,34 @@ import { JSDOM } from 'jsdom';
                 console.log(error);
                 return {};
               }
+            } else if (
+              entity.name === 'Posts' &&
+              entity.type === AP.CollectionTypes.ORDERED_COLLECTION
+            ) {
+              assertIsApCollection(entity);
+
+              const posts = await this.adapters.db.expandCollection(entity);
+
+              return {
+                posts,
+                attributedTo: await this.adapters.db.findEntityById(
+                  getId(entity.attributedTo),
+                ),
+              };
+            } else if (
+              entity.name === 'Blog' &&
+              entity.type === AP.CollectionTypes.ORDERED_COLLECTION
+            ) {
+              assertIsApCollection(entity);
+
+              const blog = await this.adapters.db.expandCollection(entity);
+
+              return {
+                blog,
+                attributedTo: await this.adapters.db.findEntityById(
+                  getId(entity.attributedTo),
+                ),
+              };
             } else if (
               entity.name === 'Outbox' &&
               entity.type === AP.CollectionTypes.ORDERED_COLLECTION

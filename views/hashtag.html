@@ -1,0 +1,24 @@
+{% macro hashtagPage() %}
+<!doctype html>
+  <meta charset="utf-8" />
+  <title>{{ entity.name }}</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="stylesheet" href="/public.css" />
+  <main>
+    <h1>
+      {{ entity.name }}
+    </h1>
+    {% if posts %}
+      {% for item in posts %}
+        <article class="note">
+          <a href="{{ item.url }}">
+            <time datetime="{{ item.published | formatDateTime }}">
+              {{ item.published | formatDateTimeForDisplay }}
+            </time>
+          </a>
+          <p>{{ item.content | safe }}</p>
+        </article>
+      {% endfor %}
+    {% endif %}
+  </main>
+{% endmacro %}

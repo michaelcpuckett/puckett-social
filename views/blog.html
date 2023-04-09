@@ -1,0 +1,19 @@
+{% macro blogPage() %}
+<!doctype html>
+  <meta charset="utf-8" />
+  <title>{{ entity.name }}</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="stylesheet" href="/public.css" />
+  <main>
+    <h1>
+      {{ entity.name }} - Test2
+    </h1>
+    <p>
+      Sorry about this, but since this site is a work in progress,
+      some ActivityPub entities do not yet have HTML representations.
+    </p>
+    <p>
+      You may want to see <a href="{{ entity.first }}">the first page of items in the collection</a>.
+    </p>
+  </main>
+{% endmacro %}

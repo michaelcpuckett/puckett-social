@@ -1,4 +1,85 @@
 import showdown from 'showdown';
+import { stripHtml } from 'string-strip-html';
+
+// Matches the "#" character followed by one or more occurrences of either
+// non-ASCII characters or word characters (letters, digits, and underscores).
+const hashtagRegexp = /(#(?:[^\x00-\x7F]|\w)+)/g;
+const mentionRegexp =
+  /(@(?:[^\x00-\x7F]|\w)+@(?:[^\x00-\x7F]|\w)+\.(?:[^\x00-\x7F]|\w)+)/g;
+
+const extractMentions = (value: string) => {
+  return [...(value.match(mentionRegexp) ?? [])];
+};
+
+const extractHashtags = (value: string) => {
+  return [...(value.match(hashtagRegexp) ?? [])];
+};
+
+const getMentionActorUrls = async (mentions: string[]) => {
+  return Object.fromEntries(
+    await Promise.all(
+      mentions.map(async (mention) => {
+        const [_, username, domain] = mention.split('@');
+
+        const jrdProfile = await fetch(
+          `/proxy/?resource=https://${domain}/.well-known/webfinger?resource=acct:${username}@${domain}`,
+          {
+            headers: {
+              Accept: 'application/json',
+            },
+          },
+        ).then((response) => {
+          if (response.body) {
+            return response.json();
+          } else {
+            return {
+              links: [],
+            };
+          }
+        });
+
+        if (!Array.isArray(jrdProfile?.links)) {
+          return [];
+        }
+
+        for (const link of jrdProfile.links) {
+          if (
+            link.rel === 'self' &&
+            link.type === 'application/activity+json' &&
+            link.href
+          ) {
+            return [mention, link.href];
+          }
+        }
+
+        return [];
+      }),
+    ),
+  );
+};
+
+const replaceMicrosyntaxWithMarkup = async (
+  value: string,
+  mentionedActorUrls: { [key: string]: URL },
+) => {
+  const withHashtagsReplaced = value.replace(hashtagRegexp, (hashtag) => {
+    const url = new URL(
+      `/tags/${hashtag.toLowerCase().replace('#', '')}`,
+      window.location.href,
+    ).toString();
+    return `<a href="${url}">${hashtag}</a>`;
+  });
+
+  return withHashtagsReplaced.replace(mentionRegexp, (mention) => {
+    const url = mentionedActorUrls[mention];
+
+    if (url) {
+      return `<a href="${url}">${mention}</a>`;
+    } else {
+      return mention;
+    }
+  });
+};
 
 const editProfileFormElement = window.document.querySelector(
   'form[data-action="edit-profile"]',
@@ -50,22 +131,22 @@ editProfileFormElement?.addEventListener('submit', (event) => {
     });
 });
 
-const uploadMediaFormElement = window.document.querySelector<HTMLFormElement>(
-  'form[data-action="upload-media"]',
+const uploadIconFormElement = window.document.querySelector<HTMLFormElement>(
+  'form[data-action="upload-icon"]',
 );
 
-uploadMediaFormElement?.addEventListener('submit', (event) => {
+uploadIconFormElement?.addEventListener('submit', (event) => {
   event.preventDefault();
 
-  const outboxUrl = uploadMediaFormElement.getAttribute('action') ?? '';
-  const endpointUrl =
-    uploadMediaFormElement.getAttribute('data-endpoint-url') ?? '';
+  const outboxUrl = uploadIconFormElement.getAttribute('action') ?? '';
+  const uploadMediaEndpointUrl =
+    uploadIconFormElement.getAttribute('data-upload-media-endpoint-url') ?? '';
   const followersUrl =
-    uploadMediaFormElement.getAttribute('data-followers-url') ?? '';
-  const actorId = uploadMediaFormElement.getAttribute('data-actor-id') ?? '';
-  const formData = new FormData(uploadMediaFormElement);
+    uploadIconFormElement.getAttribute('data-followers-url') ?? '';
+  const actorId = uploadIconFormElement.getAttribute('data-actor-id') ?? '';
+  const formData = new FormData(uploadIconFormElement);
   formData.set('object', JSON.stringify({ type: 'Image' }));
-  fetch(endpointUrl, {
+  fetch(uploadMediaEndpointUrl, {
     method: 'POST',
     headers: {
       Accept: 'application/activity+json',
@@ -75,7 +156,7 @@ uploadMediaFormElement?.addEventListener('submit', (event) => {
     .then((response) => {
       const createActivityUrl = response.headers.get('Location');
       if (createActivityUrl) {
-        fetch(`/proxy/?resource=${createActivityUrl}`)
+        fetch(`/proxy?resource=${createActivityUrl}`)
           .then((response) => {
             return response.json();
           })
@@ -118,11 +199,79 @@ uploadMediaFormElement?.addEventListener('submit', (event) => {
     });
 });
 
+const uploadImageFormElement = window.document.querySelector<HTMLFormElement>(
+  'form[data-action="upload-image"]',
+);
+
+uploadImageFormElement?.addEventListener('submit', (event) => {
+  event.preventDefault();
+
+  const outboxUrl = uploadImageFormElement.getAttribute('action') ?? '';
+  const uploadMediaEndpointUrl =
+    uploadImageFormElement.getAttribute('data-upload-media-endpoint-url') ?? '';
+  const followersUrl =
+    uploadImageFormElement.getAttribute('data-followers-url') ?? '';
+  const actorId = uploadImageFormElement.getAttribute('data-actor-id') ?? '';
+  const formData = new FormData(uploadImageFormElement);
+  formData.set('object', JSON.stringify({ type: 'Image' }));
+  fetch(uploadMediaEndpointUrl, {
+    method: 'POST',
+    headers: {
+      Accept: 'application/activity+json',
+    },
+    body: formData,
+  })
+    .then((response) => {
+      const createActivityUrl = response.headers.get('Location');
+      if (createActivityUrl) {
+        fetch(`/proxy/?resource=${createActivityUrl}`)
+          .then((response) => {
+            return response.json();
+          })
+          .then(({ object: image }) => {
+            fetch(outboxUrl, {
+              method: 'POST',
+              headers: {
+                Accept: 'application/activity+json',
+              },
+              body: JSON.stringify({
+                '@context': ['https://www.w3.org/ns/activitystreams'],
+                type: 'Update',
+                actor: actorId,
+                to: [
+                  'https://www.w3.org/ns/activitystreams#Public',
+                  followersUrl,
+                ],
+                object: {
+                  id: actorId,
+                  image,
+                },
+              }),
+            })
+              .then((response) => {
+                if (response.headers.get('Location')) {
+                  window.location.reload();
+                }
+              })
+              .catch((error) => {
+                console.log(error);
+              });
+          })
+          .catch((error) => {
+            console.log(error);
+          });
+      }
+    })
+    .catch((error) => {
+      console.log(error);
+    });
+});
+
 const newMicroblogStatusFormElement = window.document.querySelector(
   '[data-action="new-microblog-status"]',
 );
 
-newMicroblogStatusFormElement?.addEventListener('submit', (event) => {
+newMicroblogStatusFormElement?.addEventListener('submit', async (event) => {
   event.preventDefault();
 
   const outboxUrl = newMicroblogStatusFormElement.getAttribute('action') ?? '';
@@ -135,8 +284,37 @@ newMicroblogStatusFormElement?.addEventListener('submit', (event) => {
       '[name="content"]',
     )?.value ?? '';
 
+  const mentions = extractMentions(content);
+  const hashtags = extractHashtags(content);
+  const mentionedActorUrls = await getMentionActorUrls(mentions);
+
   const converter = new showdown.Converter();
-  const htmlContent = converter.makeHtml(content);
+  const htmlContent = converter.makeHtml(
+    await replaceMicrosyntaxWithMarkup(content, mentionedActorUrls),
+  );
+
+  const mentionObjects = mentions
+    .map((mention) => {
+      const url = mentionedActorUrls[mention];
+
+      if (!url) {
+        return null;
+      }
+
+      return {
+        type: 'Mention',
+        href: url,
+        name: mention,
+      };
+    })
+    .filter((_) => !!_);
+
+  const hashtagObjects = hashtags.map((hashtag) => ({
+    type: 'Hashtag',
+    name: hashtag,
+  }));
+
+  const tags = [...mentionObjects, ...hashtagObjects];
 
   fetch(outboxUrl, {
     method: 'POST',
@@ -147,10 +325,19 @@ newMicroblogStatusFormElement?.addEventListener('submit', (event) => {
       '@context': ['https://www.w3.org/ns/activitystreams'],
       type: 'Create',
       actor: actorId,
-      to: ['https://www.w3.org/ns/activitystreams#Public', followersUrl],
+      to: [
+        'https://www.w3.org/ns/activitystreams#Public',
+        followersUrl,
+        ...Object.values(mentionedActorUrls),
+      ],
       object: {
         type: 'Note',
         content: htmlContent,
+        ...(tags.length
+          ? {
+              tag: tags,
+            }
+          : null),
       },
     }),
   })
@@ -168,7 +355,7 @@ const updateMicroblogStatusFormElement = window.document.querySelector(
   '[data-action="update-microblog-status"]',
 );
 
-updateMicroblogStatusFormElement?.addEventListener('submit', (event) => {
+updateMicroblogStatusFormElement?.addEventListener('submit', async (event) => {
   event.preventDefault();
 
   const outboxUrl =
@@ -187,6 +374,36 @@ updateMicroblogStatusFormElement?.addEventListener('submit', (event) => {
   const converter = new showdown.Converter();
   const htmlContent = converter.makeHtml(content);
 
+  const strippedContent = stripHtml(htmlContent).result;
+
+  const mentions = extractMentions(strippedContent);
+  const hashtags = extractHashtags(strippedContent);
+
+  const mentionedActorUrls = await getMentionActorUrls(mentions);
+
+  const mentionObjects = mentions
+    .map((mention) => {
+      const url = mentionedActorUrls[mention];
+
+      if (!url) {
+        return null;
+      }
+
+      return {
+        type: 'Mention',
+        href: url,
+        name: mention,
+      };
+    })
+    .filter((_) => !!_);
+
+  const hashtagObjects = hashtags.map((hashtag) => ({
+    type: 'Hashtag',
+    name: hashtag,
+  }));
+
+  const tags = [...mentionObjects, ...hashtagObjects];
+
   fetch(outboxUrl, {
     method: 'POST',
     headers: {
@@ -196,10 +413,22 @@ updateMicroblogStatusFormElement?.addEventListener('submit', (event) => {
       '@context': ['https://www.w3.org/ns/activitystreams'],
       type: 'Update',
       actor: actorId,
-      to: ['https://www.w3.org/ns/activitystreams#Public', followersUrl],
+      to: [
+        'https://www.w3.org/ns/activitystreams#Public',
+        followersUrl,
+        ...Object.values(mentionedActorUrls),
+      ],
       object: {
         id: objectId,
-        content: htmlContent,
+        content: await replaceMicrosyntaxWithMarkup(
+          htmlContent,
+          mentionedActorUrls,
+        ),
+        ...(tags.length
+          ? {
+              tag: tags,
+            }
+          : null),
       },
     }),
   })

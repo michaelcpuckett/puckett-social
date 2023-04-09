@@ -560,6 +560,55 @@ function hmrAccept(bundle, id) {
 var parcelHelpers = require("@parcel/transformer-js/src/esmodule-helpers.js");
 var _showdown = require("showdown");
 var _showdownDefault = parcelHelpers.interopDefault(_showdown);
+var _stringStripHtml = require("string-strip-html");
+// Matches the "#" character followed by one or more occurrences of either
+// non-ASCII characters or word characters (letters, digits, and underscores).
+const hashtagRegexp = /(#(?:[^\x00-\x7F]|\w)+)/g;
+const mentionRegexp = /(@(?:[^\x00-\x7F]|\w)+@(?:[^\x00-\x7F]|\w)+\.(?:[^\x00-\x7F]|\w)+)/g;
+const extractMentions = (value)=>{
+    return [
+        ...value.match(mentionRegexp) ?? []
+    ];
+};
+const extractHashtags = (value)=>{
+    return [
+        ...value.match(hashtagRegexp) ?? []
+    ];
+};
+const getMentionActorUrls = async (mentions)=>{
+    return Object.fromEntries(await Promise.all(mentions.map(async (mention)=>{
+        const [_, username, domain] = mention.split("@");
+        const jrdProfile = await fetch(`/proxy/?resource=https://${domain}/.well-known/webfinger?resource=acct:${username}@${domain}`, {
+            headers: {
+                Accept: "application/json"
+            }
+        }).then((response)=>{
+            if (response.body) return response.json();
+            else return {
+                links: []
+            };
+        });
+        if (!Array.isArray(jrdProfile?.links)) return [];
+        for (const link of jrdProfile.links){
+            if (link.rel === "self" && link.type === "application/activity+json" && link.href) return [
+                mention,
+                link.href
+            ];
+        }
+        return [];
+    })));
+};
+const replaceMicrosyntaxWithMarkup = async (value, mentionedActorUrls)=>{
+    const withHashtagsReplaced = value.replace(hashtagRegexp, (hashtag)=>{
+        const url = new URL(`/tags/${hashtag.toLowerCase().replace("#", "")}`, window.location.href).toString();
+        return `<a href="${url}">${hashtag}</a>`;
+    });
+    return withHashtagsReplaced.replace(mentionRegexp, (mention)=>{
+        const url = mentionedActorUrls[mention];
+        if (url) return `<a href="${url}">${mention}</a>`;
+        else return mention;
+    });
+};
 const editProfileFormElement = window.document.querySelector('form[data-action="edit-profile"]');
 editProfileFormElement?.addEventListener("submit", (event)=>{
     event.preventDefault();
@@ -597,18 +646,18 @@ editProfileFormElement?.addEventListener("submit", (event)=>{
         console.log(error);
     });
 });
-const uploadMediaFormElement = window.document.querySelector('form[data-action="upload-media"]');
-uploadMediaFormElement?.addEventListener("submit", (event)=>{
+const uploadIconFormElement = window.document.querySelector('form[data-action="upload-icon"]');
+uploadIconFormElement?.addEventListener("submit", (event)=>{
     event.preventDefault();
-    const outboxUrl = uploadMediaFormElement.getAttribute("action") ?? "";
-    const endpointUrl = uploadMediaFormElement.getAttribute("data-endpoint-url") ?? "";
-    const followersUrl = uploadMediaFormElement.getAttribute("data-followers-url") ?? "";
-    const actorId = uploadMediaFormElement.getAttribute("data-actor-id") ?? "";
-    const formData = new FormData(uploadMediaFormElement);
+    const outboxUrl = uploadIconFormElement.getAttribute("action") ?? "";
+    const uploadMediaEndpointUrl = uploadIconFormElement.getAttribute("data-upload-media-endpoint-url") ?? "";
+    const followersUrl = uploadIconFormElement.getAttribute("data-followers-url") ?? "";
+    const actorId = uploadIconFormElement.getAttribute("data-actor-id") ?? "";
+    const formData = new FormData(uploadIconFormElement);
     formData.set("object", JSON.stringify({
         type: "Image"
     }));
-    fetch(endpointUrl, {
+    fetch(uploadMediaEndpointUrl, {
         method: "POST",
         headers: {
             Accept: "application/activity+json"
@@ -616,7 +665,7 @@ uploadMediaFormElement?.addEventListener("submit", (event)=>{
         body: formData
     }).then((response)=>{
         const createActivityUrl = response.headers.get("Location");
-        if (createActivityUrl) fetch(`/proxy/?resource=${createActivityUrl}`).then((response)=>{
+        if (createActivityUrl) fetch(`/proxy?resource=${createActivityUrl}`).then((response)=>{
             return response.json();
         }).then(({ object: icon  })=>{
             fetch(outboxUrl, {
@@ -651,15 +700,89 @@ uploadMediaFormElement?.addEventListener("submit", (event)=>{
         console.log(error);
     });
 });
+const uploadImageFormElement = window.document.querySelector('form[data-action="upload-image"]');
+uploadImageFormElement?.addEventListener("submit", (event)=>{
+    event.preventDefault();
+    const outboxUrl = uploadImageFormElement.getAttribute("action") ?? "";
+    const uploadMediaEndpointUrl = uploadImageFormElement.getAttribute("data-upload-media-endpoint-url") ?? "";
+    const followersUrl = uploadImageFormElement.getAttribute("data-followers-url") ?? "";
+    const actorId = uploadImageFormElement.getAttribute("data-actor-id") ?? "";
+    const formData = new FormData(uploadImageFormElement);
+    formData.set("object", JSON.stringify({
+        type: "Image"
+    }));
+    fetch(uploadMediaEndpointUrl, {
+        method: "POST",
+        headers: {
+            Accept: "application/activity+json"
+        },
+        body: formData
+    }).then((response)=>{
+        const createActivityUrl = response.headers.get("Location");
+        if (createActivityUrl) fetch(`/proxy/?resource=${createActivityUrl}`).then((response)=>{
+            return response.json();
+        }).then(({ object: image  })=>{
+            fetch(outboxUrl, {
+                method: "POST",
+                headers: {
+                    Accept: "application/activity+json"
+                },
+                body: JSON.stringify({
+                    "@context": [
+                        "https://www.w3.org/ns/activitystreams"
+                    ],
+                    type: "Update",
+                    actor: actorId,
+                    to: [
+                        "https://www.w3.org/ns/activitystreams#Public",
+                        followersUrl
+                    ],
+                    object: {
+                        id: actorId,
+                        image
+                    }
+                })
+            }).then((response)=>{
+                if (response.headers.get("Location")) window.location.reload();
+            }).catch((error)=>{
+                console.log(error);
+            });
+        }).catch((error)=>{
+            console.log(error);
+        });
+    }).catch((error)=>{
+        console.log(error);
+    });
+});
 const newMicroblogStatusFormElement = window.document.querySelector('[data-action="new-microblog-status"]');
-newMicroblogStatusFormElement?.addEventListener("submit", (event)=>{
+newMicroblogStatusFormElement?.addEventListener("submit", async (event)=>{
     event.preventDefault();
     const outboxUrl = newMicroblogStatusFormElement.getAttribute("action") ?? "";
     const followersUrl = newMicroblogStatusFormElement.getAttribute("data-followers-url") ?? "";
     const actorId = newMicroblogStatusFormElement.getAttribute("data-actor-id") ?? "";
     const content = newMicroblogStatusFormElement.querySelector('[name="content"]')?.value ?? "";
+    const mentions = extractMentions(content);
+    const hashtags = extractHashtags(content);
+    const mentionedActorUrls = await getMentionActorUrls(mentions);
     const converter = new (0, _showdownDefault.default).Converter();
-    const htmlContent = converter.makeHtml(content);
+    const htmlContent = converter.makeHtml(await replaceMicrosyntaxWithMarkup(content, mentionedActorUrls));
+    const mentionObjects = mentions.map((mention)=>{
+        const url = mentionedActorUrls[mention];
+        if (!url) return null;
+        return {
+            type: "Mention",
+            href: url,
+            name: mention
+        };
+    }).filter((_)=>!!_);
+    const hashtagObjects = hashtags.map((hashtag)=>({
+            type: "Hashtag",
+            name: hashtag
+        }));
+    const tags = [
+        ...mentionObjects,
+        ...hashtagObjects
+    ];
     fetch(outboxUrl, {
         method: "POST",
         headers: {
@@ -673,11 +796,15 @@ newMicroblogStatusFormElement?.addEventListener("submit", (event)=>{
             actor: actorId,
             to: [
                 "https://www.w3.org/ns/activitystreams#Public",
-                followersUrl
+                followersUrl,
+                ...Object.values(mentionedActorUrls)
             ],
             object: {
                 type: "Note",
-                content: htmlContent
+                content: htmlContent,
+                ...tags.length ? {
+                    tag: tags
+                } : null
             }
         })
     }).then((response)=>{
@@ -687,7 +814,7 @@ newMicroblogStatusFormElement?.addEventListener("submit", (event)=>{
     });
 });
 const updateMicroblogStatusFormElement = window.document.querySelector('[data-action="update-microblog-status"]');
-updateMicroblogStatusFormElement?.addEventListener("submit", (event)=>{
+updateMicroblogStatusFormElement?.addEventListener("submit", async (event)=>{
     event.preventDefault();
     const outboxUrl = updateMicroblogStatusFormElement.getAttribute("action") ?? "";
     const followersUrl = updateMicroblogStatusFormElement.getAttribute("data-followers-url") ?? "";
@@ -696,6 +823,27 @@ updateMicroblogStatusFormElement?.addEventListener("submit", (event)=>{
     const content = updateMicroblogStatusFormElement.querySelector('[name="content"]')?.value ?? "";
     const converter = new (0, _showdownDefault.default).Converter();
     const htmlContent = converter.makeHtml(content);
+    const strippedContent = (0, _stringStripHtml.stripHtml)(htmlContent).result;
+    const mentions = extractMentions(strippedContent);
+    const hashtags = extractHashtags(strippedContent);
+    const mentionedActorUrls = await getMentionActorUrls(mentions);
+    const mentionObjects = mentions.map((mention)=>{
+        const url = mentionedActorUrls[mention];
+        if (!url) return null;
+        return {
+            type: "Mention",
+            href: url,
+            name: mention
+        };
+    }).filter((_)=>!!_);
+    const hashtagObjects = hashtags.map((hashtag)=>({
+            type: "Hashtag",
+            name: hashtag
+        }));
+    const tags = [
+        ...mentionObjects,
+        ...hashtagObjects
+    ];
     fetch(outboxUrl, {
         method: "POST",
         headers: {
@@ -709,11 +857,15 @@ updateMicroblogStatusFormElement?.addEventListener("submit", (event)=>{
             actor: actorId,
             to: [
                 "https://www.w3.org/ns/activitystreams#Public",
-                followersUrl
+                followersUrl,
+                ...Object.values(mentionedActorUrls)
             ],
             object: {
                 id: objectId,
-                content: htmlContent
+                content: await replaceMicrosyntaxWithMarkup(htmlContent, mentionedActorUrls),
+                ...tags.length ? {
+                    tag: tags
+                } : null
             }
         })
     }).then((response)=>{
@@ -762,7 +914,6 @@ newBlogPostFormElement?.addEventListener("submit", (event)=>{
     const content = newBlogPostFormElement.querySelector('[name="content"]')?.value ?? "";
     const converter = new (0, _showdownDefault.default).Converter();
     const htmlContent = converter.makeHtml(content);
-    const htmlSummary = converter.makeHtml(summary);
     fetch(outboxUrl, {
         method: "POST",
         headers: {
@@ -780,7 +931,7 @@ newBlogPostFormElement?.addEventListener("submit", (event)=>{
             ],
             object: {
                 type: "Article",
-                summary: htmlSummary,
+                summary,
                 content: htmlContent,
                 source: {
                     content,
@@ -805,7 +956,6 @@ updateBlogPostFormElement?.addEventListener("submit", (event)=>{
     const content = updateBlogPostFormElement.querySelector('[name="content"]')?.value ?? "";
     const converter = new (0, _showdownDefault.default).Converter();
     const htmlContent = converter.makeHtml(content);
-    const htmlSummary = converter.makeHtml(summary);
     fetch(outboxUrl, {
         method: "POST",
         headers: {
@@ -823,7 +973,7 @@ updateBlogPostFormElement?.addEventListener("submit", (event)=>{
             ],
             object: {
                 id: objectId,
-                summary: htmlSummary,
+                summary,
                 content: htmlContent
             }
         })
@@ -864,7 +1014,7 @@ deleteBlogPostFormElement?.addEventListener("submit", (event)=>{
     });
 });
 
-},{"showdown":"eYddV","@parcel/transformer-js/src/esmodule-helpers.js":"gkKU3"}],"eYddV":[function(require,module,exports) {
+},{"showdown":"eYddV","string-strip-html":"jDJw2","@parcel/transformer-js/src/esmodule-helpers.js":"gkKU3"}],"eYddV":[function(require,module,exports) {
 (function() {
     /**
  * Created by Tivie on 13-07-2015.
@@ -4796,6 +4946,6904 @@ deleteBlogPostFormElement?.addEventListener("submit", (event)=>{
     else if (0, module.exports) module.exports = showdown;
     else root.showdown = showdown;
 }).call(this);
+
+},{}],"jDJw2":[function(require,module,exports) {
+/**
+ * @name string-strip-html
+ * @fileoverview Strip HTML tags from strings. No parser, accepts mixed sources.
+ * @version 8.4.0
+ * @author Roy Revelt, Codsen Ltd
+ * @license MIT
+ * {@link https://codsen.com/os/string-strip-html/}
+ */ var global = arguments[3];
+"use strict";
+var __create = Object.create;
+var __defProp = Object.defineProperty;
+var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
+var __getOwnPropNames = Object.getOwnPropertyNames;
+var __getProtoOf = Object.getPrototypeOf;
+var __hasOwnProp = Object.prototype.hasOwnProperty;
+var __commonJS = (cb, mod)=>function __require() {
+        return mod || (0, cb[__getOwnPropNames(cb)[0]])((mod = {
+            exports: {}
+        }).exports, mod), mod.exports;
+    };
+var __export = (target, all)=>{
+    for(var name in all)__defProp(target, name, {
+        get: all[name],
+        enumerable: true
+    });
+};
+var __copyProps = (to, from, except, desc)=>{
+    if (from && typeof from === "object" || typeof from === "function") {
+        for (let key of __getOwnPropNames(from))if (!__hasOwnProp.call(to, key) && key !== except) __defProp(to, key, {
+            get: ()=>from[key],
+            enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable
+        });
+    }
+    return to;
+};
+var __toESM = (mod, isNodeMode, target)=>(target = mod != null ? __create(__getProtoOf(mod)) : {}, __copyProps(isNodeMode || !mod || !mod.__esModule ? __defProp(target, "default", {
+        value: mod,
+        enumerable: true
+    }) : target, mod));
+var __toCommonJS = (mod)=>__copyProps(__defProp({}, "__esModule", {
+        value: true
+    }), mod);
+// ../../node_modules/lodash.trim/index.js
+var require_lodash = __commonJS({
+    "../../node_modules/lodash.trim/index.js" (exports, module2) {
+        var INFINITY = 1 / 0;
+        var symbolTag = "[object Symbol]";
+        var reTrim = /^\s+|\s+$/g;
+        var rsAstralRange = "\ud800-\udfff";
+        var rsComboMarksRange = "\\u0300-\\u036f\\ufe20-\\ufe23";
+        var rsComboSymbolsRange = "\\u20d0-\\u20f0";
+        var rsVarRange = "\\ufe0e\\ufe0f";
+        var rsAstral = "[" + rsAstralRange + "]";
+        var rsCombo = "[" + rsComboMarksRange + rsComboSymbolsRange + "]";
+        var rsFitz = "\ud83c[\udffb-\udfff]";
+        var rsModifier = "(?:" + rsCombo + "|" + rsFitz + ")";
+        var rsNonAstral = "[^" + rsAstralRange + "]";
+        var rsRegional = "(?:\ud83c[\udde6-\uddff]){2}";
+        var rsSurrPair = "[\ud800-\udbff][\udc00-\udfff]";
+        var rsZWJ = "\\u200d";
+        var reOptMod = rsModifier + "?";
+        var rsOptVar = "[" + rsVarRange + "]?";
+        var rsOptJoin = "(?:" + rsZWJ + "(?:" + [
+            rsNonAstral,
+            rsRegional,
+            rsSurrPair
+        ].join("|") + ")" + rsOptVar + reOptMod + ")*";
+        var rsSeq = rsOptVar + reOptMod + rsOptJoin;
+        var rsSymbol = "(?:" + [
+            rsNonAstral + rsCombo + "?",
+            rsCombo,
+            rsRegional,
+            rsSurrPair,
+            rsAstral
+        ].join("|") + ")";
+        var reUnicode = RegExp(rsFitz + "(?=" + rsFitz + ")|" + rsSymbol + rsSeq, "g");
+        var reHasUnicode = RegExp("[" + rsZWJ + rsAstralRange + rsComboMarksRange + rsComboSymbolsRange + rsVarRange + "]");
+        var freeGlobal = typeof global == "object" && global && global.Object === Object && global;
+        var freeSelf = typeof self == "object" && self && self.Object === Object && self;
+        var root = freeGlobal || freeSelf || Function("return this")();
+        function asciiToArray(string) {
+            return string.split("");
+        }
+        function baseFindIndex(array, predicate, fromIndex, fromRight) {
+            var length = array.length, index = fromIndex + (fromRight ? 1 : -1);
+            while(fromRight ? index-- : ++index < length){
+                if (predicate(array[index], index, array)) return index;
+            }
+            return -1;
+        }
+        function baseIndexOf(array, value, fromIndex) {
+            if (value !== value) return baseFindIndex(array, baseIsNaN, fromIndex);
+            var index = fromIndex - 1, length = array.length;
+            while(++index < length){
+                if (array[index] === value) return index;
+            }
+            return -1;
+        }
+        function baseIsNaN(value) {
+            return value !== value;
+        }
+        function charsStartIndex(strSymbols, chrSymbols) {
+            var index = -1, length = strSymbols.length;
+            while(++index < length && baseIndexOf(chrSymbols, strSymbols[index], 0) > -1);
+            return index;
+        }
+        function charsEndIndex(strSymbols, chrSymbols) {
+            var index = strSymbols.length;
+            while(index-- && baseIndexOf(chrSymbols, strSymbols[index], 0) > -1);
+            return index;
+        }
+        function hasUnicode(string) {
+            return reHasUnicode.test(string);
+        }
+        function stringToArray(string) {
+            return hasUnicode(string) ? unicodeToArray(string) : asciiToArray(string);
+        }
+        function unicodeToArray(string) {
+            return string.match(reUnicode) || [];
+        }
+        var objectProto = Object.prototype;
+        var objectToString = objectProto.toString;
+        var Symbol2 = root.Symbol;
+        var symbolProto = Symbol2 ? Symbol2.prototype : void 0;
+        var symbolToString = symbolProto ? symbolProto.toString : void 0;
+        function baseSlice(array, start, end) {
+            var index = -1, length = array.length;
+            if (start < 0) start = -start > length ? 0 : length + start;
+            end = end > length ? length : end;
+            if (end < 0) end += length;
+            length = start > end ? 0 : end - start >>> 0;
+            start >>>= 0;
+            var result = Array(length);
+            while(++index < length)result[index] = array[index + start];
+            return result;
+        }
+        function baseToString(value) {
+            if (typeof value == "string") return value;
+            if (isSymbol(value)) return symbolToString ? symbolToString.call(value) : "";
+            var result = value + "";
+            return result == "0" && 1 / value == -INFINITY ? "-0" : result;
+        }
+        function castSlice(array, start, end) {
+            var length = array.length;
+            end = end === void 0 ? length : end;
+            return !start && end >= length ? array : baseSlice(array, start, end);
+        }
+        function isObjectLike(value) {
+            return !!value && typeof value == "object";
+        }
+        function isSymbol(value) {
+            return typeof value == "symbol" || isObjectLike(value) && objectToString.call(value) == symbolTag;
+        }
+        function toString(value) {
+            return value == null ? "" : baseToString(value);
+        }
+        function trim2(string, chars, guard) {
+            string = toString(string);
+            if (string && (guard || chars === void 0)) return string.replace(reTrim, "");
+            if (!string || !(chars = baseToString(chars))) return string;
+            var strSymbols = stringToArray(string), chrSymbols = stringToArray(chars), start = charsStartIndex(strSymbols, chrSymbols), end = charsEndIndex(strSymbols, chrSymbols) + 1;
+            return castSlice(strSymbols, start, end).join("");
+        }
+        module2.exports = trim2;
+    }
+});
+// ../../node_modules/lodash.without/index.js
+var require_lodash2 = __commonJS({
+    "../../node_modules/lodash.without/index.js" (exports, module2) {
+        var LARGE_ARRAY_SIZE = 200;
+        var HASH_UNDEFINED = "__lodash_hash_undefined__";
+        var MAX_SAFE_INTEGER = 9007199254740991;
+        var funcTag = "[object Function]";
+        var genTag = "[object GeneratorFunction]";
+        var reRegExpChar = /[\\^$.*+?()[\]{}|]/g;
+        var reIsHostCtor = /^\[object .+?Constructor\]$/;
+        var freeGlobal = typeof global == "object" && global && global.Object === Object && global;
+        var freeSelf = typeof self == "object" && self && self.Object === Object && self;
+        var root = freeGlobal || freeSelf || Function("return this")();
+        function apply(func, thisArg, args) {
+            switch(args.length){
+                case 0:
+                    return func.call(thisArg);
+                case 1:
+                    return func.call(thisArg, args[0]);
+                case 2:
+                    return func.call(thisArg, args[0], args[1]);
+                case 3:
+                    return func.call(thisArg, args[0], args[1], args[2]);
+            }
+            return func.apply(thisArg, args);
+        }
+        function arrayIncludes(array, value) {
+            var length = array ? array.length : 0;
+            return !!length && baseIndexOf(array, value, 0) > -1;
+        }
+        function arrayIncludesWith(array, value, comparator) {
+            var index = -1, length = array ? array.length : 0;
+            while(++index < length){
+                if (comparator(value, array[index])) return true;
+            }
+            return false;
+        }
+        function arrayMap(array, iteratee) {
+            var index = -1, length = array ? array.length : 0, result = Array(length);
+            while(++index < length)result[index] = iteratee(array[index], index, array);
+            return result;
+        }
+        function baseFindIndex(array, predicate, fromIndex, fromRight) {
+            var length = array.length, index = fromIndex + (fromRight ? 1 : -1);
+            while(fromRight ? index-- : ++index < length){
+                if (predicate(array[index], index, array)) return index;
+            }
+            return -1;
+        }
+        function baseIndexOf(array, value, fromIndex) {
+            if (value !== value) return baseFindIndex(array, baseIsNaN, fromIndex);
+            var index = fromIndex - 1, length = array.length;
+            while(++index < length){
+                if (array[index] === value) return index;
+            }
+            return -1;
+        }
+        function baseIsNaN(value) {
+            return value !== value;
+        }
+        function baseUnary(func) {
+            return function(value) {
+                return func(value);
+            };
+        }
+        function cacheHas(cache, key) {
+            return cache.has(key);
+        }
+        function getValue(object, key) {
+            return object == null ? void 0 : object[key];
+        }
+        function isHostObject(value) {
+            var result = false;
+            if (value != null && typeof value.toString != "function") try {
+                result = !!(value + "");
+            } catch (e) {}
+            return result;
+        }
+        var arrayProto = Array.prototype;
+        var funcProto = Function.prototype;
+        var objectProto = Object.prototype;
+        var coreJsData = root["__core-js_shared__"];
+        var maskSrcKey = function() {
+            var uid = /[^.]+$/.exec(coreJsData && coreJsData.keys && coreJsData.keys.IE_PROTO || "");
+            return uid ? "Symbol(src)_1." + uid : "";
+        }();
+        var funcToString = funcProto.toString;
+        var hasOwnProperty = objectProto.hasOwnProperty;
+        var objectToString = objectProto.toString;
+        var reIsNative = RegExp("^" + funcToString.call(hasOwnProperty).replace(reRegExpChar, "\\$&").replace(/hasOwnProperty|(function).*?(?=\\\()| for .+?(?=\\\])/g, "$1.*?") + "$");
+        var splice = arrayProto.splice;
+        var nativeMax = Math.max;
+        var Map = getNative(root, "Map");
+        var nativeCreate = getNative(Object, "create");
+        function Hash(entries) {
+            var index = -1, length = entries ? entries.length : 0;
+            this.clear();
+            while(++index < length){
+                var entry = entries[index];
+                this.set(entry[0], entry[1]);
+            }
+        }
+        function hashClear() {
+            this.__data__ = nativeCreate ? nativeCreate(null) : {};
+        }
+        function hashDelete(key) {
+            return this.has(key) && delete this.__data__[key];
+        }
+        function hashGet(key) {
+            var data = this.__data__;
+            if (nativeCreate) {
+                var result = data[key];
+                return result === HASH_UNDEFINED ? void 0 : result;
+            }
+            return hasOwnProperty.call(data, key) ? data[key] : void 0;
+        }
+        function hashHas(key) {
+            var data = this.__data__;
+            return nativeCreate ? data[key] !== void 0 : hasOwnProperty.call(data, key);
+        }
+        function hashSet(key, value) {
+            var data = this.__data__;
+            data[key] = nativeCreate && value === void 0 ? HASH_UNDEFINED : value;
+            return this;
+        }
+        Hash.prototype.clear = hashClear;
+        Hash.prototype["delete"] = hashDelete;
+        Hash.prototype.get = hashGet;
+        Hash.prototype.has = hashHas;
+        Hash.prototype.set = hashSet;
+        function ListCache(entries) {
+            var index = -1, length = entries ? entries.length : 0;
+            this.clear();
+            while(++index < length){
+                var entry = entries[index];
+                this.set(entry[0], entry[1]);
+            }
+        }
+        function listCacheClear() {
+            this.__data__ = [];
+        }
+        function listCacheDelete(key) {
+            var data = this.__data__, index = assocIndexOf(data, key);
+            if (index < 0) return false;
+            var lastIndex = data.length - 1;
+            if (index == lastIndex) data.pop();
+            else splice.call(data, index, 1);
+            return true;
+        }
+        function listCacheGet(key) {
+            var data = this.__data__, index = assocIndexOf(data, key);
+            return index < 0 ? void 0 : data[index][1];
+        }
+        function listCacheHas(key) {
+            return assocIndexOf(this.__data__, key) > -1;
+        }
+        function listCacheSet(key, value) {
+            var data = this.__data__, index = assocIndexOf(data, key);
+            if (index < 0) data.push([
+                key,
+                value
+            ]);
+            else data[index][1] = value;
+            return this;
+        }
+        ListCache.prototype.clear = listCacheClear;
+        ListCache.prototype["delete"] = listCacheDelete;
+        ListCache.prototype.get = listCacheGet;
+        ListCache.prototype.has = listCacheHas;
+        ListCache.prototype.set = listCacheSet;
+        function MapCache(entries) {
+            var index = -1, length = entries ? entries.length : 0;
+            this.clear();
+            while(++index < length){
+                var entry = entries[index];
+                this.set(entry[0], entry[1]);
+            }
+        }
+        function mapCacheClear() {
+            this.__data__ = {
+                hash: new Hash(),
+                map: new (Map || ListCache)(),
+                string: new Hash()
+            };
+        }
+        function mapCacheDelete(key) {
+            return getMapData(this, key)["delete"](key);
+        }
+        function mapCacheGet(key) {
+            return getMapData(this, key).get(key);
+        }
+        function mapCacheHas(key) {
+            return getMapData(this, key).has(key);
+        }
+        function mapCacheSet(key, value) {
+            getMapData(this, key).set(key, value);
+            return this;
+        }
+        MapCache.prototype.clear = mapCacheClear;
+        MapCache.prototype["delete"] = mapCacheDelete;
+        MapCache.prototype.get = mapCacheGet;
+        MapCache.prototype.has = mapCacheHas;
+        MapCache.prototype.set = mapCacheSet;
+        function SetCache(values) {
+            var index = -1, length = values ? values.length : 0;
+            this.__data__ = new MapCache();
+            while(++index < length)this.add(values[index]);
+        }
+        function setCacheAdd(value) {
+            this.__data__.set(value, HASH_UNDEFINED);
+            return this;
+        }
+        function setCacheHas(value) {
+            return this.__data__.has(value);
+        }
+        SetCache.prototype.add = SetCache.prototype.push = setCacheAdd;
+        SetCache.prototype.has = setCacheHas;
+        function assocIndexOf(array, key) {
+            var length = array.length;
+            while(length--){
+                if (eq(array[length][0], key)) return length;
+            }
+            return -1;
+        }
+        function baseDifference(array, values, iteratee, comparator) {
+            var index = -1, includes = arrayIncludes, isCommon = true, length = array.length, result = [], valuesLength = values.length;
+            if (!length) return result;
+            if (iteratee) values = arrayMap(values, baseUnary(iteratee));
+            if (comparator) {
+                includes = arrayIncludesWith;
+                isCommon = false;
+            } else if (values.length >= LARGE_ARRAY_SIZE) {
+                includes = cacheHas;
+                isCommon = false;
+                values = new SetCache(values);
+            }
+            outer: while(++index < length){
+                var value = array[index], computed = iteratee ? iteratee(value) : value;
+                value = comparator || value !== 0 ? value : 0;
+                if (isCommon && computed === computed) {
+                    var valuesIndex = valuesLength;
+                    while(valuesIndex--){
+                        if (values[valuesIndex] === computed) continue outer;
+                    }
+                    result.push(value);
+                } else if (!includes(values, computed, comparator)) result.push(value);
+            }
+            return result;
+        }
+        function baseIsNative(value) {
+            if (!isObject(value) || isMasked(value)) return false;
+            var pattern = isFunction(value) || isHostObject(value) ? reIsNative : reIsHostCtor;
+            return pattern.test(toSource(value));
+        }
+        function baseRest(func, start) {
+            start = nativeMax(start === void 0 ? func.length - 1 : start, 0);
+            return function() {
+                var args = arguments, index = -1, length = nativeMax(args.length - start, 0), array = Array(length);
+                while(++index < length)array[index] = args[start + index];
+                index = -1;
+                var otherArgs = Array(start + 1);
+                while(++index < start)otherArgs[index] = args[index];
+                otherArgs[start] = array;
+                return apply(func, this, otherArgs);
+            };
+        }
+        function getMapData(map, key) {
+            var data = map.__data__;
+            return isKeyable(key) ? data[typeof key == "string" ? "string" : "hash"] : data.map;
+        }
+        function getNative(object, key) {
+            var value = getValue(object, key);
+            return baseIsNative(value) ? value : void 0;
+        }
+        function isKeyable(value) {
+            var type = typeof value;
+            return type == "string" || type == "number" || type == "symbol" || type == "boolean" ? value !== "__proto__" : value === null;
+        }
+        function isMasked(func) {
+            return !!maskSrcKey && maskSrcKey in func;
+        }
+        function toSource(func) {
+            if (func != null) {
+                try {
+                    return funcToString.call(func);
+                } catch (e) {}
+                try {
+                    return func + "";
+                } catch (e) {}
+            }
+            return "";
+        }
+        var without2 = baseRest(function(array, values) {
+            return isArrayLikeObject(array) ? baseDifference(array, values) : [];
+        });
+        function eq(value, other) {
+            return value === other || value !== value && other !== other;
+        }
+        function isArrayLike(value) {
+            return value != null && isLength(value.length) && !isFunction(value);
+        }
+        function isArrayLikeObject(value) {
+            return isObjectLike(value) && isArrayLike(value);
+        }
+        function isFunction(value) {
+            var tag = isObject(value) ? objectToString.call(value) : "";
+            return tag == funcTag || tag == genTag;
+        }
+        function isLength(value) {
+            return typeof value == "number" && value > -1 && value % 1 == 0 && value <= MAX_SAFE_INTEGER;
+        }
+        function isObject(value) {
+            var type = typeof value;
+            return !!value && (type == "object" || type == "function");
+        }
+        function isObjectLike(value) {
+            return !!value && typeof value == "object";
+        }
+        module2.exports = without2;
+    }
+});
+// ../../node_modules/html-entities/lib/named-references.js
+var require_named_references = __commonJS({
+    "../../node_modules/html-entities/lib/named-references.js" (exports) {
+        "use strict";
+        Object.defineProperty(exports, "__esModule", {
+            value: true
+        });
+        exports.bodyRegExps = {
+            xml: /&(?:#\d+|#[xX][\da-fA-F]+|[0-9a-zA-Z]+);?/g,
+            html4: /&(?:nbsp|iexcl|cent|pound|curren|yen|brvbar|sect|uml|copy|ordf|laquo|not|shy|reg|macr|deg|plusmn|sup2|sup3|acute|micro|para|middot|cedil|sup1|ordm|raquo|frac14|frac12|frac34|iquest|Agrave|Aacute|Acirc|Atilde|Auml|Aring|AElig|Ccedil|Egrave|Eacute|Ecirc|Euml|Igrave|Iacute|Icirc|Iuml|ETH|Ntilde|Ograve|Oacute|Ocirc|Otilde|Ouml|times|Oslash|Ugrave|Uacute|Ucirc|Uuml|Yacute|THORN|szlig|agrave|aacute|acirc|atilde|auml|aring|aelig|ccedil|egrave|eacute|ecirc|euml|igrave|iacute|icirc|iuml|eth|ntilde|ograve|oacute|ocirc|otilde|ouml|divide|oslash|ugrave|uacute|ucirc|uuml|yacute|thorn|yuml|quot|amp|lt|gt|#\d+|#[xX][\da-fA-F]+|[0-9a-zA-Z]+);?/g,
+            html5: /&(?:AElig|AMP|Aacute|Acirc|Agrave|Aring|Atilde|Auml|COPY|Ccedil|ETH|Eacute|Ecirc|Egrave|Euml|GT|Iacute|Icirc|Igrave|Iuml|LT|Ntilde|Oacute|Ocirc|Ograve|Oslash|Otilde|Ouml|QUOT|REG|THORN|Uacute|Ucirc|Ugrave|Uuml|Yacute|aacute|acirc|acute|aelig|agrave|amp|aring|atilde|auml|brvbar|ccedil|cedil|cent|copy|curren|deg|divide|eacute|ecirc|egrave|eth|euml|frac12|frac14|frac34|gt|iacute|icirc|iexcl|igrave|iquest|iuml|laquo|lt|macr|micro|middot|nbsp|not|ntilde|oacute|ocirc|ograve|ordf|ordm|oslash|otilde|ouml|para|plusmn|pound|quot|raquo|reg|sect|shy|sup1|sup2|sup3|szlig|thorn|times|uacute|ucirc|ugrave|uml|uuml|yacute|yen|yuml|#\d+|#[xX][\da-fA-F]+|[0-9a-zA-Z]+);?/g
+        };
+        exports.namedReferences = {
+            xml: {
+                entities: {
+                    "&lt;": "<",
+                    "&gt;": ">",
+                    "&quot;": '"',
+                    "&apos;": "'",
+                    "&amp;": "&"
+                },
+                characters: {
+                    "<": "&lt;",
+                    ">": "&gt;",
+                    '"': "&quot;",
+                    "'": "&apos;",
+                    "&": "&amp;"
+                }
+            },
+            html4: {
+                entities: {
+                    "&apos;": "'",
+                    "&nbsp": "\xa0",
+                    "&nbsp;": "\xa0",
+                    "&iexcl": "\xa1",
+                    "&iexcl;": "\xa1",
+                    "&cent": "\xa2",
+                    "&cent;": "\xa2",
+                    "&pound": "\xa3",
+                    "&pound;": "\xa3",
+                    "&curren": "\xa4",
+                    "&curren;": "\xa4",
+                    "&yen": "\xa5",
+                    "&yen;": "\xa5",
+                    "&brvbar": "\xa6",
+                    "&brvbar;": "\xa6",
+                    "&sect": "\xa7",
+                    "&sect;": "\xa7",
+                    "&uml": "\xa8",
+                    "&uml;": "\xa8",
+                    "&copy": "\xa9",
+                    "&copy;": "\xa9",
+                    "&ordf": "\xaa",
+                    "&ordf;": "\xaa",
+                    "&laquo": "\xab",
+                    "&laquo;": "\xab",
+                    "&not": "\xac",
+                    "&not;": "\xac",
+                    "&shy": "\xad",
+                    "&shy;": "\xad",
+                    "&reg": "\xae",
+                    "&reg;": "\xae",
+                    "&macr": "\xaf",
+                    "&macr;": "\xaf",
+                    "&deg": "\xb0",
+                    "&deg;": "\xb0",
+                    "&plusmn": "\xb1",
+                    "&plusmn;": "\xb1",
+                    "&sup2": "\xb2",
+                    "&sup2;": "\xb2",
+                    "&sup3": "\xb3",
+                    "&sup3;": "\xb3",
+                    "&acute": "\xb4",
+                    "&acute;": "\xb4",
+                    "&micro": "\xb5",
+                    "&micro;": "\xb5",
+                    "&para": "\xb6",
+                    "&para;": "\xb6",
+                    "&middot": "\xb7",
+                    "&middot;": "\xb7",
+                    "&cedil": "\xb8",
+                    "&cedil;": "\xb8",
+                    "&sup1": "\xb9",
+                    "&sup1;": "\xb9",
+                    "&ordm": "\xba",
+                    "&ordm;": "\xba",
+                    "&raquo": "\xbb",
+                    "&raquo;": "\xbb",
+                    "&frac14": "\xbc",
+                    "&frac14;": "\xbc",
+                    "&frac12": "\xbd",
+                    "&frac12;": "\xbd",
+                    "&frac34": "\xbe",
+                    "&frac34;": "\xbe",
+                    "&iquest": "\xbf",
+                    "&iquest;": "\xbf",
+                    "&Agrave": "\xc0",
+                    "&Agrave;": "\xc0",
+                    "&Aacute": "\xc1",
+                    "&Aacute;": "\xc1",
+                    "&Acirc": "\xc2",
+                    "&Acirc;": "\xc2",
+                    "&Atilde": "\xc3",
+                    "&Atilde;": "\xc3",
+                    "&Auml": "\xc4",
+                    "&Auml;": "\xc4",
+                    "&Aring": "\xc5",
+                    "&Aring;": "\xc5",
+                    "&AElig": "\xc6",
+                    "&AElig;": "\xc6",
+                    "&Ccedil": "\xc7",
+                    "&Ccedil;": "\xc7",
+                    "&Egrave": "\xc8",
+                    "&Egrave;": "\xc8",
+                    "&Eacute": "\xc9",
+                    "&Eacute;": "\xc9",
+                    "&Ecirc": "\xca",
+                    "&Ecirc;": "\xca",
+                    "&Euml": "\xcb",
+                    "&Euml;": "\xcb",
+                    "&Igrave": "\xcc",
+                    "&Igrave;": "\xcc",
+                    "&Iacute": "\xcd",
+                    "&Iacute;": "\xcd",
+                    "&Icirc": "\xce",
+                    "&Icirc;": "\xce",
+                    "&Iuml": "\xcf",
+                    "&Iuml;": "\xcf",
+                    "&ETH": "\xd0",
+                    "&ETH;": "\xd0",
+                    "&Ntilde": "\xd1",
+                    "&Ntilde;": "\xd1",
+                    "&Ograve": "\xd2",
+                    "&Ograve;": "\xd2",
+                    "&Oacute": "\xd3",
+                    "&Oacute;": "\xd3",
+                    "&Ocirc": "\xd4",
+                    "&Ocirc;": "\xd4",
+                    "&Otilde": "\xd5",
+                    "&Otilde;": "\xd5",
+                    "&Ouml": "\xd6",
+                    "&Ouml;": "\xd6",
+                    "&times": "\xd7",
+                    "&times;": "\xd7",
+                    "&Oslash": "\xd8",
+                    "&Oslash;": "\xd8",
+                    "&Ugrave": "\xd9",
+                    "&Ugrave;": "\xd9",
+                    "&Uacute": "\xda",
+                    "&Uacute;": "\xda",
+                    "&Ucirc": "\xdb",
+                    "&Ucirc;": "\xdb",
+                    "&Uuml": "\xdc",
+                    "&Uuml;": "\xdc",
+                    "&Yacute": "\xdd",
+                    "&Yacute;": "\xdd",
+                    "&THORN": "\xde",
+                    "&THORN;": "\xde",
+                    "&szlig": "\xdf",
+                    "&szlig;": "\xdf",
+                    "&agrave": "\xe0",
+                    "&agrave;": "\xe0",
+                    "&aacute": "\xe1",
+                    "&aacute;": "\xe1",
+                    "&acirc": "\xe2",
+                    "&acirc;": "\xe2",
+                    "&atilde": "\xe3",
+                    "&atilde;": "\xe3",
+                    "&auml": "\xe4",
+                    "&auml;": "\xe4",
+                    "&aring": "\xe5",
+                    "&aring;": "\xe5",
+                    "&aelig": "\xe6",
+                    "&aelig;": "\xe6",
+                    "&ccedil": "\xe7",
+                    "&ccedil;": "\xe7",
+                    "&egrave": "\xe8",
+                    "&egrave;": "\xe8",
+                    "&eacute": "\xe9",
+                    "&eacute;": "\xe9",
+                    "&ecirc": "\xea",
+                    "&ecirc;": "\xea",
+                    "&euml": "\xeb",
+                    "&euml;": "\xeb",
+                    "&igrave": "\xec",
+                    "&igrave;": "\xec",
+                    "&iacute": "\xed",
+                    "&iacute;": "\xed",
+                    "&icirc": "\xee",
+                    "&icirc;": "\xee",
+                    "&iuml": "\xef",
+                    "&iuml;": "\xef",
+                    "&eth": "\xf0",
+                    "&eth;": "\xf0",
+                    "&ntilde": "\xf1",
+                    "&ntilde;": "\xf1",
+                    "&ograve": "\xf2",
+                    "&ograve;": "\xf2",
+                    "&oacute": "\xf3",
+                    "&oacute;": "\xf3",
+                    "&ocirc": "\xf4",
+                    "&ocirc;": "\xf4",
+                    "&otilde": "\xf5",
+                    "&otilde;": "\xf5",
+                    "&ouml": "\xf6",
+                    "&ouml;": "\xf6",
+                    "&divide": "\xf7",
+                    "&divide;": "\xf7",
+                    "&oslash": "\xf8",
+                    "&oslash;": "\xf8",
+                    "&ugrave": "\xf9",
+                    "&ugrave;": "\xf9",
+                    "&uacute": "\xfa",
+                    "&uacute;": "\xfa",
+                    "&ucirc": "\xfb",
+                    "&ucirc;": "\xfb",
+                    "&uuml": "\xfc",
+                    "&uuml;": "\xfc",
+                    "&yacute": "\xfd",
+                    "&yacute;": "\xfd",
+                    "&thorn": "\xfe",
+                    "&thorn;": "\xfe",
+                    "&yuml": "\xff",
+                    "&yuml;": "\xff",
+                    "&quot": '"',
+                    "&quot;": '"',
+                    "&amp": "&",
+                    "&amp;": "&",
+                    "&lt": "<",
+                    "&lt;": "<",
+                    "&gt": ">",
+                    "&gt;": ">",
+                    "&OElig;": "Œ",
+                    "&oelig;": "œ",
+                    "&Scaron;": "Š",
+                    "&scaron;": "š",
+                    "&Yuml;": "Ÿ",
+                    "&circ;": "ˆ",
+                    "&tilde;": "˜",
+                    "&ensp;": " ",
+                    "&emsp;": " ",
+                    "&thinsp;": " ",
+                    "&zwnj;": "‌",
+                    "&zwj;": "‍",
+                    "&lrm;": "‎",
+                    "&rlm;": "‏",
+                    "&ndash;": "–",
+                    "&mdash;": "—",
+                    "&lsquo;": "‘",
+                    "&rsquo;": "’",
+                    "&sbquo;": "‚",
+                    "&ldquo;": "“",
+                    "&rdquo;": "”",
+                    "&bdquo;": "„",
+                    "&dagger;": "†",
+                    "&Dagger;": "‡",
+                    "&permil;": "‰",
+                    "&lsaquo;": "‹",
+                    "&rsaquo;": "›",
+                    "&euro;": "€",
+                    "&fnof;": "ƒ",
+                    "&Alpha;": "Α",
+                    "&Beta;": "Β",
+                    "&Gamma;": "Γ",
+                    "&Delta;": "Δ",
+                    "&Epsilon;": "Ε",
+                    "&Zeta;": "Ζ",
+                    "&Eta;": "Η",
+                    "&Theta;": "Θ",
+                    "&Iota;": "Ι",
+                    "&Kappa;": "Κ",
+                    "&Lambda;": "Λ",
+                    "&Mu;": "Μ",
+                    "&Nu;": "Ν",
+                    "&Xi;": "Ξ",
+                    "&Omicron;": "Ο",
+                    "&Pi;": "Π",
+                    "&Rho;": "Ρ",
+                    "&Sigma;": "Σ",
+                    "&Tau;": "Τ",
+                    "&Upsilon;": "Υ",
+                    "&Phi;": "Φ",
+                    "&Chi;": "Χ",
+                    "&Psi;": "Ψ",
+                    "&Omega;": "Ω",
+                    "&alpha;": "α",
+                    "&beta;": "β",
+                    "&gamma;": "γ",
+                    "&delta;": "δ",
+                    "&epsilon;": "ε",
+                    "&zeta;": "ζ",
+                    "&eta;": "η",
+                    "&theta;": "θ",
+                    "&iota;": "ι",
+                    "&kappa;": "κ",
+                    "&lambda;": "λ",
+                    "&mu;": "μ",
+                    "&nu;": "ν",
+                    "&xi;": "ξ",
+                    "&omicron;": "ο",
+                    "&pi;": "π",
+                    "&rho;": "ρ",
+                    "&sigmaf;": "ς",
+                    "&sigma;": "σ",
+                    "&tau;": "τ",
+                    "&upsilon;": "υ",
+                    "&phi;": "φ",
+                    "&chi;": "χ",
+                    "&psi;": "ψ",
+                    "&omega;": "ω",
+                    "&thetasym;": "ϑ",
+                    "&upsih;": "ϒ",
+                    "&piv;": "ϖ",
+                    "&bull;": "•",
+                    "&hellip;": "…",
+                    "&prime;": "′",
+                    "&Prime;": "″",
+                    "&oline;": "‾",
+                    "&frasl;": "⁄",
+                    "&weierp;": "℘",
+                    "&image;": "ℑ",
+                    "&real;": "ℜ",
+                    "&trade;": "™",
+                    "&alefsym;": "ℵ",
+                    "&larr;": "←",
+                    "&uarr;": "↑",
+                    "&rarr;": "→",
+                    "&darr;": "↓",
+                    "&harr;": "↔",
+                    "&crarr;": "↵",
+                    "&lArr;": "⇐",
+                    "&uArr;": "⇑",
+                    "&rArr;": "⇒",
+                    "&dArr;": "⇓",
+                    "&hArr;": "⇔",
+                    "&forall;": "∀",
+                    "&part;": "∂",
+                    "&exist;": "∃",
+                    "&empty;": "∅",
+                    "&nabla;": "∇",
+                    "&isin;": "∈",
+                    "&notin;": "∉",
+                    "&ni;": "∋",
+                    "&prod;": "∏",
+                    "&sum;": "∑",
+                    "&minus;": "−",
+                    "&lowast;": "∗",
+                    "&radic;": "√",
+                    "&prop;": "∝",
+                    "&infin;": "∞",
+                    "&ang;": "∠",
+                    "&and;": "∧",
+                    "&or;": "∨",
+                    "&cap;": "∩",
+                    "&cup;": "∪",
+                    "&int;": "∫",
+                    "&there4;": "∴",
+                    "&sim;": "∼",
+                    "&cong;": "≅",
+                    "&asymp;": "≈",
+                    "&ne;": "≠",
+                    "&equiv;": "≡",
+                    "&le;": "≤",
+                    "&ge;": "≥",
+                    "&sub;": "⊂",
+                    "&sup;": "⊃",
+                    "&nsub;": "⊄",
+                    "&sube;": "⊆",
+                    "&supe;": "⊇",
+                    "&oplus;": "⊕",
+                    "&otimes;": "⊗",
+                    "&perp;": "⊥",
+                    "&sdot;": "⋅",
+                    "&lceil;": "⌈",
+                    "&rceil;": "⌉",
+                    "&lfloor;": "⌊",
+                    "&rfloor;": "⌋",
+                    "&lang;": "〈",
+                    "&rang;": "〉",
+                    "&loz;": "◊",
+                    "&spades;": "♠",
+                    "&clubs;": "♣",
+                    "&hearts;": "♥",
+                    "&diams;": "♦"
+                },
+                characters: {
+                    "'": "&apos;",
+                    "\xa0": "&nbsp;",
+                    "\xa1": "&iexcl;",
+                    "\xa2": "&cent;",
+                    "\xa3": "&pound;",
+                    "\xa4": "&curren;",
+                    "\xa5": "&yen;",
+                    "\xa6": "&brvbar;",
+                    "\xa7": "&sect;",
+                    "\xa8": "&uml;",
+                    "\xa9": "&copy;",
+                    "\xaa": "&ordf;",
+                    "\xab": "&laquo;",
+                    "\xac": "&not;",
+                    "\xad": "&shy;",
+                    "\xae": "&reg;",
+                    "\xaf": "&macr;",
+                    "\xb0": "&deg;",
+                    "\xb1": "&plusmn;",
+                    "\xb2": "&sup2;",
+                    "\xb3": "&sup3;",
+                    "\xb4": "&acute;",
+                    "\xb5": "&micro;",
+                    "\xb6": "&para;",
+                    "\xb7": "&middot;",
+                    "\xb8": "&cedil;",
+                    "\xb9": "&sup1;",
+                    "\xba": "&ordm;",
+                    "\xbb": "&raquo;",
+                    "\xbc": "&frac14;",
+                    "\xbd": "&frac12;",
+                    "\xbe": "&frac34;",
+                    "\xbf": "&iquest;",
+                    "\xc0": "&Agrave;",
+                    "\xc1": "&Aacute;",
+                    "\xc2": "&Acirc;",
+                    "\xc3": "&Atilde;",
+                    "\xc4": "&Auml;",
+                    "\xc5": "&Aring;",
+                    "\xc6": "&AElig;",
+                    "\xc7": "&Ccedil;",
+                    "\xc8": "&Egrave;",
+                    "\xc9": "&Eacute;",
+                    "\xca": "&Ecirc;",
+                    "\xcb": "&Euml;",
+                    "\xcc": "&Igrave;",
+                    "\xcd": "&Iacute;",
+                    "\xce": "&Icirc;",
+                    "\xcf": "&Iuml;",
+                    "\xd0": "&ETH;",
+                    "\xd1": "&Ntilde;",
+                    "\xd2": "&Ograve;",
+                    "\xd3": "&Oacute;",
+                    "\xd4": "&Ocirc;",
+                    "\xd5": "&Otilde;",
+                    "\xd6": "&Ouml;",
+                    "\xd7": "&times;",
+                    "\xd8": "&Oslash;",
+                    "\xd9": "&Ugrave;",
+                    "\xda": "&Uacute;",
+                    "\xdb": "&Ucirc;",
+                    "\xdc": "&Uuml;",
+                    "\xdd": "&Yacute;",
+                    "\xde": "&THORN;",
+                    "\xdf": "&szlig;",
+                    "\xe0": "&agrave;",
+                    "\xe1": "&aacute;",
+                    "\xe2": "&acirc;",
+                    "\xe3": "&atilde;",
+                    "\xe4": "&auml;",
+                    "\xe5": "&aring;",
+                    "\xe6": "&aelig;",
+                    "\xe7": "&ccedil;",
+                    "\xe8": "&egrave;",
+                    "\xe9": "&eacute;",
+                    "\xea": "&ecirc;",
+                    "\xeb": "&euml;",
+                    "\xec": "&igrave;",
+                    "\xed": "&iacute;",
+                    "\xee": "&icirc;",
+                    "\xef": "&iuml;",
+                    "\xf0": "&eth;",
+                    "\xf1": "&ntilde;",
+                    "\xf2": "&ograve;",
+                    "\xf3": "&oacute;",
+                    "\xf4": "&ocirc;",
+                    "\xf5": "&otilde;",
+                    "\xf6": "&ouml;",
+                    "\xf7": "&divide;",
+                    "\xf8": "&oslash;",
+                    "\xf9": "&ugrave;",
+                    "\xfa": "&uacute;",
+                    "\xfb": "&ucirc;",
+                    "\xfc": "&uuml;",
+                    "\xfd": "&yacute;",
+                    "\xfe": "&thorn;",
+                    "\xff": "&yuml;",
+                    '"': "&quot;",
+                    "&": "&amp;",
+                    "<": "&lt;",
+                    ">": "&gt;",
+                    "Œ": "&OElig;",
+                    "œ": "&oelig;",
+                    "Š": "&Scaron;",
+                    "š": "&scaron;",
+                    "Ÿ": "&Yuml;",
+                    "ˆ": "&circ;",
+                    "˜": "&tilde;",
+                    " ": "&ensp;",
+                    " ": "&emsp;",
+                    " ": "&thinsp;",
+                    "‌": "&zwnj;",
+                    "‍": "&zwj;",
+                    "‎": "&lrm;",
+                    "‏": "&rlm;",
+                    "–": "&ndash;",
+                    "—": "&mdash;",
+                    "‘": "&lsquo;",
+                    "’": "&rsquo;",
+                    "‚": "&sbquo;",
+                    "“": "&ldquo;",
+                    "”": "&rdquo;",
+                    "„": "&bdquo;",
+                    "†": "&dagger;",
+                    "‡": "&Dagger;",
+                    "‰": "&permil;",
+                    "‹": "&lsaquo;",
+                    "›": "&rsaquo;",
+                    "€": "&euro;",
+                    "ƒ": "&fnof;",
+                    "Α": "&Alpha;",
+                    "Β": "&Beta;",
+                    "Γ": "&Gamma;",
+                    "Δ": "&Delta;",
+                    "Ε": "&Epsilon;",
+                    "Ζ": "&Zeta;",
+                    "Η": "&Eta;",
+                    "Θ": "&Theta;",
+                    "Ι": "&Iota;",
+                    "Κ": "&Kappa;",
+                    "Λ": "&Lambda;",
+                    "Μ": "&Mu;",
+                    "Ν": "&Nu;",
+                    "Ξ": "&Xi;",
+                    "Ο": "&Omicron;",
+                    "Π": "&Pi;",
+                    "Ρ": "&Rho;",
+                    "Σ": "&Sigma;",
+                    "Τ": "&Tau;",
+                    "Υ": "&Upsilon;",
+                    "Φ": "&Phi;",
+                    "Χ": "&Chi;",
+                    "Ψ": "&Psi;",
+                    "Ω": "&Omega;",
+                    "α": "&alpha;",
+                    "β": "&beta;",
+                    "γ": "&gamma;",
+                    "δ": "&delta;",
+                    "ε": "&epsilon;",
+                    "ζ": "&zeta;",
+                    "η": "&eta;",
+                    "θ": "&theta;",
+                    "ι": "&iota;",
+                    "κ": "&kappa;",
+                    "λ": "&lambda;",
+                    "μ": "&mu;",
+                    "ν": "&nu;",
+                    "ξ": "&xi;",
+                    "ο": "&omicron;",
+                    "π": "&pi;",
+                    "ρ": "&rho;",
+                    "ς": "&sigmaf;",
+                    "σ": "&sigma;",
+                    "τ": "&tau;",
+                    "υ": "&upsilon;",
+                    "φ": "&phi;",
+                    "χ": "&chi;",
+                    "ψ": "&psi;",
+                    "ω": "&omega;",
+                    "ϑ": "&thetasym;",
+                    "ϒ": "&upsih;",
+                    "ϖ": "&piv;",
+                    "•": "&bull;",
+                    "…": "&hellip;",
+                    "′": "&prime;",
+                    "″": "&Prime;",
+                    "‾": "&oline;",
+                    "⁄": "&frasl;",
+                    "℘": "&weierp;",
+                    "ℑ": "&image;",
+                    "ℜ": "&real;",
+                    "™": "&trade;",
+                    "ℵ": "&alefsym;",
+                    "←": "&larr;",
+                    "↑": "&uarr;",
+                    "→": "&rarr;",
+                    "↓": "&darr;",
+                    "↔": "&harr;",
+                    "↵": "&crarr;",
+                    "⇐": "&lArr;",
+                    "⇑": "&uArr;",
+                    "⇒": "&rArr;",
+                    "⇓": "&dArr;",
+                    "⇔": "&hArr;",
+                    "∀": "&forall;",
+                    "∂": "&part;",
+                    "∃": "&exist;",
+                    "∅": "&empty;",
+                    "∇": "&nabla;",
+                    "∈": "&isin;",
+                    "∉": "&notin;",
+                    "∋": "&ni;",
+                    "∏": "&prod;",
+                    "∑": "&sum;",
+                    "−": "&minus;",
+                    "∗": "&lowast;",
+                    "√": "&radic;",
+                    "∝": "&prop;",
+                    "∞": "&infin;",
+                    "∠": "&ang;",
+                    "∧": "&and;",
+                    "∨": "&or;",
+                    "∩": "&cap;",
+                    "∪": "&cup;",
+                    "∫": "&int;",
+                    "∴": "&there4;",
+                    "∼": "&sim;",
+                    "≅": "&cong;",
+                    "≈": "&asymp;",
+                    "≠": "&ne;",
+                    "≡": "&equiv;",
+                    "≤": "&le;",
+                    "≥": "&ge;",
+                    "⊂": "&sub;",
+                    "⊃": "&sup;",
+                    "⊄": "&nsub;",
+                    "⊆": "&sube;",
+                    "⊇": "&supe;",
+                    "⊕": "&oplus;",
+                    "⊗": "&otimes;",
+                    "⊥": "&perp;",
+                    "⋅": "&sdot;",
+                    "⌈": "&lceil;",
+                    "⌉": "&rceil;",
+                    "⌊": "&lfloor;",
+                    "⌋": "&rfloor;",
+                    "〈": "&lang;",
+                    "〉": "&rang;",
+                    "◊": "&loz;",
+                    "♠": "&spades;",
+                    "♣": "&clubs;",
+                    "♥": "&hearts;",
+                    "♦": "&diams;"
+                }
+            },
+            html5: {
+                entities: {
+                    "&AElig": "\xc6",
+                    "&AElig;": "\xc6",
+                    "&AMP": "&",
+                    "&AMP;": "&",
+                    "&Aacute": "\xc1",
+                    "&Aacute;": "\xc1",
+                    "&Abreve;": "Ă",
+                    "&Acirc": "\xc2",
+                    "&Acirc;": "\xc2",
+                    "&Acy;": "А",
+                    "&Afr;": "\uD835\uDD04",
+                    "&Agrave": "\xc0",
+                    "&Agrave;": "\xc0",
+                    "&Alpha;": "Α",
+                    "&Amacr;": "Ā",
+                    "&And;": "⩓",
+                    "&Aogon;": "Ą",
+                    "&Aopf;": "\uD835\uDD38",
+                    "&ApplyFunction;": "⁡",
+                    "&Aring": "\xc5",
+                    "&Aring;": "\xc5",
+                    "&Ascr;": "\uD835\uDC9C",
+                    "&Assign;": "≔",
+                    "&Atilde": "\xc3",
+                    "&Atilde;": "\xc3",
+                    "&Auml": "\xc4",
+                    "&Auml;": "\xc4",
+                    "&Backslash;": "∖",
+                    "&Barv;": "⫧",
+                    "&Barwed;": "⌆",
+                    "&Bcy;": "Б",
+                    "&Because;": "∵",
+                    "&Bernoullis;": "ℬ",
+                    "&Beta;": "Β",
+                    "&Bfr;": "\uD835\uDD05",
+                    "&Bopf;": "\uD835\uDD39",
+                    "&Breve;": "˘",
+                    "&Bscr;": "ℬ",
+                    "&Bumpeq;": "≎",
+                    "&CHcy;": "Ч",
+                    "&COPY": "\xa9",
+                    "&COPY;": "\xa9",
+                    "&Cacute;": "Ć",
+                    "&Cap;": "⋒",
+                    "&CapitalDifferentialD;": "ⅅ",
+                    "&Cayleys;": "ℭ",
+                    "&Ccaron;": "Č",
+                    "&Ccedil": "\xc7",
+                    "&Ccedil;": "\xc7",
+                    "&Ccirc;": "Ĉ",
+                    "&Cconint;": "∰",
+                    "&Cdot;": "Ċ",
+                    "&Cedilla;": "\xb8",
+                    "&CenterDot;": "\xb7",
+                    "&Cfr;": "ℭ",
+                    "&Chi;": "Χ",
+                    "&CircleDot;": "⊙",
+                    "&CircleMinus;": "⊖",
+                    "&CirclePlus;": "⊕",
+                    "&CircleTimes;": "⊗",
+                    "&ClockwiseContourIntegral;": "∲",
+                    "&CloseCurlyDoubleQuote;": "”",
+                    "&CloseCurlyQuote;": "’",
+                    "&Colon;": "∷",
+                    "&Colone;": "⩴",
+                    "&Congruent;": "≡",
+                    "&Conint;": "∯",
+                    "&ContourIntegral;": "∮",
+                    "&Copf;": "ℂ",
+                    "&Coproduct;": "∐",
+                    "&CounterClockwiseContourIntegral;": "∳",
+                    "&Cross;": "⨯",
+                    "&Cscr;": "\uD835\uDC9E",
+                    "&Cup;": "⋓",
+                    "&CupCap;": "≍",
+                    "&DD;": "ⅅ",
+                    "&DDotrahd;": "⤑",
+                    "&DJcy;": "Ђ",
+                    "&DScy;": "Ѕ",
+                    "&DZcy;": "Џ",
+                    "&Dagger;": "‡",
+                    "&Darr;": "↡",
+                    "&Dashv;": "⫤",
+                    "&Dcaron;": "Ď",
+                    "&Dcy;": "Д",
+                    "&Del;": "∇",
+                    "&Delta;": "Δ",
+                    "&Dfr;": "\uD835\uDD07",
+                    "&DiacriticalAcute;": "\xb4",
+                    "&DiacriticalDot;": "˙",
+                    "&DiacriticalDoubleAcute;": "˝",
+                    "&DiacriticalGrave;": "`",
+                    "&DiacriticalTilde;": "˜",
+                    "&Diamond;": "⋄",
+                    "&DifferentialD;": "ⅆ",
+                    "&Dopf;": "\uD835\uDD3B",
+                    "&Dot;": "\xa8",
+                    "&DotDot;": "⃜",
+                    "&DotEqual;": "≐",
+                    "&DoubleContourIntegral;": "∯",
+                    "&DoubleDot;": "\xa8",
+                    "&DoubleDownArrow;": "⇓",
+                    "&DoubleLeftArrow;": "⇐",
+                    "&DoubleLeftRightArrow;": "⇔",
+                    "&DoubleLeftTee;": "⫤",
+                    "&DoubleLongLeftArrow;": "⟸",
+                    "&DoubleLongLeftRightArrow;": "⟺",
+                    "&DoubleLongRightArrow;": "⟹",
+                    "&DoubleRightArrow;": "⇒",
+                    "&DoubleRightTee;": "⊨",
+                    "&DoubleUpArrow;": "⇑",
+                    "&DoubleUpDownArrow;": "⇕",
+                    "&DoubleVerticalBar;": "∥",
+                    "&DownArrow;": "↓",
+                    "&DownArrowBar;": "⤓",
+                    "&DownArrowUpArrow;": "⇵",
+                    "&DownBreve;": "̑",
+                    "&DownLeftRightVector;": "⥐",
+                    "&DownLeftTeeVector;": "⥞",
+                    "&DownLeftVector;": "↽",
+                    "&DownLeftVectorBar;": "⥖",
+                    "&DownRightTeeVector;": "⥟",
+                    "&DownRightVector;": "⇁",
+                    "&DownRightVectorBar;": "⥗",
+                    "&DownTee;": "⊤",
+                    "&DownTeeArrow;": "↧",
+                    "&Downarrow;": "⇓",
+                    "&Dscr;": "\uD835\uDC9F",
+                    "&Dstrok;": "Đ",
+                    "&ENG;": "Ŋ",
+                    "&ETH": "\xd0",
+                    "&ETH;": "\xd0",
+                    "&Eacute": "\xc9",
+                    "&Eacute;": "\xc9",
+                    "&Ecaron;": "Ě",
+                    "&Ecirc": "\xca",
+                    "&Ecirc;": "\xca",
+                    "&Ecy;": "Э",
+                    "&Edot;": "Ė",
+                    "&Efr;": "\uD835\uDD08",
+                    "&Egrave": "\xc8",
+                    "&Egrave;": "\xc8",
+                    "&Element;": "∈",
+                    "&Emacr;": "Ē",
+                    "&EmptySmallSquare;": "◻",
+                    "&EmptyVerySmallSquare;": "▫",
+                    "&Eogon;": "Ę",
+                    "&Eopf;": "\uD835\uDD3C",
+                    "&Epsilon;": "Ε",
+                    "&Equal;": "⩵",
+                    "&EqualTilde;": "≂",
+                    "&Equilibrium;": "⇌",
+                    "&Escr;": "ℰ",
+                    "&Esim;": "⩳",
+                    "&Eta;": "Η",
+                    "&Euml": "\xcb",
+                    "&Euml;": "\xcb",
+                    "&Exists;": "∃",
+                    "&ExponentialE;": "ⅇ",
+                    "&Fcy;": "Ф",
+                    "&Ffr;": "\uD835\uDD09",
+                    "&FilledSmallSquare;": "◼",
+                    "&FilledVerySmallSquare;": "▪",
+                    "&Fopf;": "\uD835\uDD3D",
+                    "&ForAll;": "∀",
+                    "&Fouriertrf;": "ℱ",
+                    "&Fscr;": "ℱ",
+                    "&GJcy;": "Ѓ",
+                    "&GT": ">",
+                    "&GT;": ">",
+                    "&Gamma;": "Γ",
+                    "&Gammad;": "Ϝ",
+                    "&Gbreve;": "Ğ",
+                    "&Gcedil;": "Ģ",
+                    "&Gcirc;": "Ĝ",
+                    "&Gcy;": "Г",
+                    "&Gdot;": "Ġ",
+                    "&Gfr;": "\uD835\uDD0A",
+                    "&Gg;": "⋙",
+                    "&Gopf;": "\uD835\uDD3E",
+                    "&GreaterEqual;": "≥",
+                    "&GreaterEqualLess;": "⋛",
+                    "&GreaterFullEqual;": "≧",
+                    "&GreaterGreater;": "⪢",
+                    "&GreaterLess;": "≷",
+                    "&GreaterSlantEqual;": "⩾",
+                    "&GreaterTilde;": "≳",
+                    "&Gscr;": "\uD835\uDCA2",
+                    "&Gt;": "≫",
+                    "&HARDcy;": "Ъ",
+                    "&Hacek;": "ˇ",
+                    "&Hat;": "^",
+                    "&Hcirc;": "Ĥ",
+                    "&Hfr;": "ℌ",
+                    "&HilbertSpace;": "ℋ",
+                    "&Hopf;": "ℍ",
+                    "&HorizontalLine;": "─",
+                    "&Hscr;": "ℋ",
+                    "&Hstrok;": "Ħ",
+                    "&HumpDownHump;": "≎",
+                    "&HumpEqual;": "≏",
+                    "&IEcy;": "Е",
+                    "&IJlig;": "Ĳ",
+                    "&IOcy;": "Ё",
+                    "&Iacute": "\xcd",
+                    "&Iacute;": "\xcd",
+                    "&Icirc": "\xce",
+                    "&Icirc;": "\xce",
+                    "&Icy;": "И",
+                    "&Idot;": "İ",
+                    "&Ifr;": "ℑ",
+                    "&Igrave": "\xcc",
+                    "&Igrave;": "\xcc",
+                    "&Im;": "ℑ",
+                    "&Imacr;": "Ī",
+                    "&ImaginaryI;": "ⅈ",
+                    "&Implies;": "⇒",
+                    "&Int;": "∬",
+                    "&Integral;": "∫",
+                    "&Intersection;": "⋂",
+                    "&InvisibleComma;": "⁣",
+                    "&InvisibleTimes;": "⁢",
+                    "&Iogon;": "Į",
+                    "&Iopf;": "\uD835\uDD40",
+                    "&Iota;": "Ι",
+                    "&Iscr;": "ℐ",
+                    "&Itilde;": "Ĩ",
+                    "&Iukcy;": "І",
+                    "&Iuml": "\xcf",
+                    "&Iuml;": "\xcf",
+                    "&Jcirc;": "Ĵ",
+                    "&Jcy;": "Й",
+                    "&Jfr;": "\uD835\uDD0D",
+                    "&Jopf;": "\uD835\uDD41",
+                    "&Jscr;": "\uD835\uDCA5",
+                    "&Jsercy;": "Ј",
+                    "&Jukcy;": "Є",
+                    "&KHcy;": "Х",
+                    "&KJcy;": "Ќ",
+                    "&Kappa;": "Κ",
+                    "&Kcedil;": "Ķ",
+                    "&Kcy;": "К",
+                    "&Kfr;": "\uD835\uDD0E",
+                    "&Kopf;": "\uD835\uDD42",
+                    "&Kscr;": "\uD835\uDCA6",
+                    "&LJcy;": "Љ",
+                    "&LT": "<",
+                    "&LT;": "<",
+                    "&Lacute;": "Ĺ",
+                    "&Lambda;": "Λ",
+                    "&Lang;": "⟪",
+                    "&Laplacetrf;": "ℒ",
+                    "&Larr;": "↞",
+                    "&Lcaron;": "Ľ",
+                    "&Lcedil;": "Ļ",
+                    "&Lcy;": "Л",
+                    "&LeftAngleBracket;": "⟨",
+                    "&LeftArrow;": "←",
+                    "&LeftArrowBar;": "⇤",
+                    "&LeftArrowRightArrow;": "⇆",
+                    "&LeftCeiling;": "⌈",
+                    "&LeftDoubleBracket;": "⟦",
+                    "&LeftDownTeeVector;": "⥡",
+                    "&LeftDownVector;": "⇃",
+                    "&LeftDownVectorBar;": "⥙",
+                    "&LeftFloor;": "⌊",
+                    "&LeftRightArrow;": "↔",
+                    "&LeftRightVector;": "⥎",
+                    "&LeftTee;": "⊣",
+                    "&LeftTeeArrow;": "↤",
+                    "&LeftTeeVector;": "⥚",
+                    "&LeftTriangle;": "⊲",
+                    "&LeftTriangleBar;": "⧏",
+                    "&LeftTriangleEqual;": "⊴",
+                    "&LeftUpDownVector;": "⥑",
+                    "&LeftUpTeeVector;": "⥠",
+                    "&LeftUpVector;": "↿",
+                    "&LeftUpVectorBar;": "⥘",
+                    "&LeftVector;": "↼",
+                    "&LeftVectorBar;": "⥒",
+                    "&Leftarrow;": "⇐",
+                    "&Leftrightarrow;": "⇔",
+                    "&LessEqualGreater;": "⋚",
+                    "&LessFullEqual;": "≦",
+                    "&LessGreater;": "≶",
+                    "&LessLess;": "⪡",
+                    "&LessSlantEqual;": "⩽",
+                    "&LessTilde;": "≲",
+                    "&Lfr;": "\uD835\uDD0F",
+                    "&Ll;": "⋘",
+                    "&Lleftarrow;": "⇚",
+                    "&Lmidot;": "Ŀ",
+                    "&LongLeftArrow;": "⟵",
+                    "&LongLeftRightArrow;": "⟷",
+                    "&LongRightArrow;": "⟶",
+                    "&Longleftarrow;": "⟸",
+                    "&Longleftrightarrow;": "⟺",
+                    "&Longrightarrow;": "⟹",
+                    "&Lopf;": "\uD835\uDD43",
+                    "&LowerLeftArrow;": "↙",
+                    "&LowerRightArrow;": "↘",
+                    "&Lscr;": "ℒ",
+                    "&Lsh;": "↰",
+                    "&Lstrok;": "Ł",
+                    "&Lt;": "≪",
+                    "&Map;": "⤅",
+                    "&Mcy;": "М",
+                    "&MediumSpace;": " ",
+                    "&Mellintrf;": "ℳ",
+                    "&Mfr;": "\uD835\uDD10",
+                    "&MinusPlus;": "∓",
+                    "&Mopf;": "\uD835\uDD44",
+                    "&Mscr;": "ℳ",
+                    "&Mu;": "Μ",
+                    "&NJcy;": "Њ",
+                    "&Nacute;": "Ń",
+                    "&Ncaron;": "Ň",
+                    "&Ncedil;": "Ņ",
+                    "&Ncy;": "Н",
+                    "&NegativeMediumSpace;": "​",
+                    "&NegativeThickSpace;": "​",
+                    "&NegativeThinSpace;": "​",
+                    "&NegativeVeryThinSpace;": "​",
+                    "&NestedGreaterGreater;": "≫",
+                    "&NestedLessLess;": "≪",
+                    "&NewLine;": "\n",
+                    "&Nfr;": "\uD835\uDD11",
+                    "&NoBreak;": "⁠",
+                    "&NonBreakingSpace;": "\xa0",
+                    "&Nopf;": "ℕ",
+                    "&Not;": "⫬",
+                    "&NotCongruent;": "≢",
+                    "&NotCupCap;": "≭",
+                    "&NotDoubleVerticalBar;": "∦",
+                    "&NotElement;": "∉",
+                    "&NotEqual;": "≠",
+                    "&NotEqualTilde;": "≂̸",
+                    "&NotExists;": "∄",
+                    "&NotGreater;": "≯",
+                    "&NotGreaterEqual;": "≱",
+                    "&NotGreaterFullEqual;": "≧̸",
+                    "&NotGreaterGreater;": "≫̸",
+                    "&NotGreaterLess;": "≹",
+                    "&NotGreaterSlantEqual;": "⩾̸",
+                    "&NotGreaterTilde;": "≵",
+                    "&NotHumpDownHump;": "≎̸",
+                    "&NotHumpEqual;": "≏̸",
+                    "&NotLeftTriangle;": "⋪",
+                    "&NotLeftTriangleBar;": "⧏̸",
+                    "&NotLeftTriangleEqual;": "⋬",
+                    "&NotLess;": "≮",
+                    "&NotLessEqual;": "≰",
+                    "&NotLessGreater;": "≸",
+                    "&NotLessLess;": "≪̸",
+                    "&NotLessSlantEqual;": "⩽̸",
+                    "&NotLessTilde;": "≴",
+                    "&NotNestedGreaterGreater;": "⪢̸",
+                    "&NotNestedLessLess;": "⪡̸",
+                    "&NotPrecedes;": "⊀",
+                    "&NotPrecedesEqual;": "⪯̸",
+                    "&NotPrecedesSlantEqual;": "⋠",
+                    "&NotReverseElement;": "∌",
+                    "&NotRightTriangle;": "⋫",
+                    "&NotRightTriangleBar;": "⧐̸",
+                    "&NotRightTriangleEqual;": "⋭",
+                    "&NotSquareSubset;": "⊏̸",
+                    "&NotSquareSubsetEqual;": "⋢",
+                    "&NotSquareSuperset;": "⊐̸",
+                    "&NotSquareSupersetEqual;": "⋣",
+                    "&NotSubset;": "⊂⃒",
+                    "&NotSubsetEqual;": "⊈",
+                    "&NotSucceeds;": "⊁",
+                    "&NotSucceedsEqual;": "⪰̸",
+                    "&NotSucceedsSlantEqual;": "⋡",
+                    "&NotSucceedsTilde;": "≿̸",
+                    "&NotSuperset;": "⊃⃒",
+                    "&NotSupersetEqual;": "⊉",
+                    "&NotTilde;": "≁",
+                    "&NotTildeEqual;": "≄",
+                    "&NotTildeFullEqual;": "≇",
+                    "&NotTildeTilde;": "≉",
+                    "&NotVerticalBar;": "∤",
+                    "&Nscr;": "\uD835\uDCA9",
+                    "&Ntilde": "\xd1",
+                    "&Ntilde;": "\xd1",
+                    "&Nu;": "Ν",
+                    "&OElig;": "Œ",
+                    "&Oacute": "\xd3",
+                    "&Oacute;": "\xd3",
+                    "&Ocirc": "\xd4",
+                    "&Ocirc;": "\xd4",
+                    "&Ocy;": "О",
+                    "&Odblac;": "Ő",
+                    "&Ofr;": "\uD835\uDD12",
+                    "&Ograve": "\xd2",
+                    "&Ograve;": "\xd2",
+                    "&Omacr;": "Ō",
+                    "&Omega;": "Ω",
+                    "&Omicron;": "Ο",
+                    "&Oopf;": "\uD835\uDD46",
+                    "&OpenCurlyDoubleQuote;": "“",
+                    "&OpenCurlyQuote;": "‘",
+                    "&Or;": "⩔",
+                    "&Oscr;": "\uD835\uDCAA",
+                    "&Oslash": "\xd8",
+                    "&Oslash;": "\xd8",
+                    "&Otilde": "\xd5",
+                    "&Otilde;": "\xd5",
+                    "&Otimes;": "⨷",
+                    "&Ouml": "\xd6",
+                    "&Ouml;": "\xd6",
+                    "&OverBar;": "‾",
+                    "&OverBrace;": "⏞",
+                    "&OverBracket;": "⎴",
+                    "&OverParenthesis;": "⏜",
+                    "&PartialD;": "∂",
+                    "&Pcy;": "П",
+                    "&Pfr;": "\uD835\uDD13",
+                    "&Phi;": "Φ",
+                    "&Pi;": "Π",
+                    "&PlusMinus;": "\xb1",
+                    "&Poincareplane;": "ℌ",
+                    "&Popf;": "ℙ",
+                    "&Pr;": "⪻",
+                    "&Precedes;": "≺",
+                    "&PrecedesEqual;": "⪯",
+                    "&PrecedesSlantEqual;": "≼",
+                    "&PrecedesTilde;": "≾",
+                    "&Prime;": "″",
+                    "&Product;": "∏",
+                    "&Proportion;": "∷",
+                    "&Proportional;": "∝",
+                    "&Pscr;": "\uD835\uDCAB",
+                    "&Psi;": "Ψ",
+                    "&QUOT": '"',
+                    "&QUOT;": '"',
+                    "&Qfr;": "\uD835\uDD14",
+                    "&Qopf;": "ℚ",
+                    "&Qscr;": "\uD835\uDCAC",
+                    "&RBarr;": "⤐",
+                    "&REG": "\xae",
+                    "&REG;": "\xae",
+                    "&Racute;": "Ŕ",
+                    "&Rang;": "⟫",
+                    "&Rarr;": "↠",
+                    "&Rarrtl;": "⤖",
+                    "&Rcaron;": "Ř",
+                    "&Rcedil;": "Ŗ",
+                    "&Rcy;": "Р",
+                    "&Re;": "ℜ",
+                    "&ReverseElement;": "∋",
+                    "&ReverseEquilibrium;": "⇋",
+                    "&ReverseUpEquilibrium;": "⥯",
+                    "&Rfr;": "ℜ",
+                    "&Rho;": "Ρ",
+                    "&RightAngleBracket;": "⟩",
+                    "&RightArrow;": "→",
+                    "&RightArrowBar;": "⇥",
+                    "&RightArrowLeftArrow;": "⇄",
+                    "&RightCeiling;": "⌉",
+                    "&RightDoubleBracket;": "⟧",
+                    "&RightDownTeeVector;": "⥝",
+                    "&RightDownVector;": "⇂",
+                    "&RightDownVectorBar;": "⥕",
+                    "&RightFloor;": "⌋",
+                    "&RightTee;": "⊢",
+                    "&RightTeeArrow;": "↦",
+                    "&RightTeeVector;": "⥛",
+                    "&RightTriangle;": "⊳",
+                    "&RightTriangleBar;": "⧐",
+                    "&RightTriangleEqual;": "⊵",
+                    "&RightUpDownVector;": "⥏",
+                    "&RightUpTeeVector;": "⥜",
+                    "&RightUpVector;": "↾",
+                    "&RightUpVectorBar;": "⥔",
+                    "&RightVector;": "⇀",
+                    "&RightVectorBar;": "⥓",
+                    "&Rightarrow;": "⇒",
+                    "&Ropf;": "ℝ",
+                    "&RoundImplies;": "⥰",
+                    "&Rrightarrow;": "⇛",
+                    "&Rscr;": "ℛ",
+                    "&Rsh;": "↱",
+                    "&RuleDelayed;": "⧴",
+                    "&SHCHcy;": "Щ",
+                    "&SHcy;": "Ш",
+                    "&SOFTcy;": "Ь",
+                    "&Sacute;": "Ś",
+                    "&Sc;": "⪼",
+                    "&Scaron;": "Š",
+                    "&Scedil;": "Ş",
+                    "&Scirc;": "Ŝ",
+                    "&Scy;": "С",
+                    "&Sfr;": "\uD835\uDD16",
+                    "&ShortDownArrow;": "↓",
+                    "&ShortLeftArrow;": "←",
+                    "&ShortRightArrow;": "→",
+                    "&ShortUpArrow;": "↑",
+                    "&Sigma;": "Σ",
+                    "&SmallCircle;": "∘",
+                    "&Sopf;": "\uD835\uDD4A",
+                    "&Sqrt;": "√",
+                    "&Square;": "□",
+                    "&SquareIntersection;": "⊓",
+                    "&SquareSubset;": "⊏",
+                    "&SquareSubsetEqual;": "⊑",
+                    "&SquareSuperset;": "⊐",
+                    "&SquareSupersetEqual;": "⊒",
+                    "&SquareUnion;": "⊔",
+                    "&Sscr;": "\uD835\uDCAE",
+                    "&Star;": "⋆",
+                    "&Sub;": "⋐",
+                    "&Subset;": "⋐",
+                    "&SubsetEqual;": "⊆",
+                    "&Succeeds;": "≻",
+                    "&SucceedsEqual;": "⪰",
+                    "&SucceedsSlantEqual;": "≽",
+                    "&SucceedsTilde;": "≿",
+                    "&SuchThat;": "∋",
+                    "&Sum;": "∑",
+                    "&Sup;": "⋑",
+                    "&Superset;": "⊃",
+                    "&SupersetEqual;": "⊇",
+                    "&Supset;": "⋑",
+                    "&THORN": "\xde",
+                    "&THORN;": "\xde",
+                    "&TRADE;": "™",
+                    "&TSHcy;": "Ћ",
+                    "&TScy;": "Ц",
+                    "&Tab;": "	",
+                    "&Tau;": "Τ",
+                    "&Tcaron;": "Ť",
+                    "&Tcedil;": "Ţ",
+                    "&Tcy;": "Т",
+                    "&Tfr;": "\uD835\uDD17",
+                    "&Therefore;": "∴",
+                    "&Theta;": "Θ",
+                    "&ThickSpace;": "  ",
+                    "&ThinSpace;": " ",
+                    "&Tilde;": "∼",
+                    "&TildeEqual;": "≃",
+                    "&TildeFullEqual;": "≅",
+                    "&TildeTilde;": "≈",
+                    "&Topf;": "\uD835\uDD4B",
+                    "&TripleDot;": "⃛",
+                    "&Tscr;": "\uD835\uDCAF",
+                    "&Tstrok;": "Ŧ",
+                    "&Uacute": "\xda",
+                    "&Uacute;": "\xda",
+                    "&Uarr;": "↟",
+                    "&Uarrocir;": "⥉",
+                    "&Ubrcy;": "Ў",
+                    "&Ubreve;": "Ŭ",
+                    "&Ucirc": "\xdb",
+                    "&Ucirc;": "\xdb",
+                    "&Ucy;": "У",
+                    "&Udblac;": "Ű",
+                    "&Ufr;": "\uD835\uDD18",
+                    "&Ugrave": "\xd9",
+                    "&Ugrave;": "\xd9",
+                    "&Umacr;": "Ū",
+                    "&UnderBar;": "_",
+                    "&UnderBrace;": "⏟",
+                    "&UnderBracket;": "⎵",
+                    "&UnderParenthesis;": "⏝",
+                    "&Union;": "⋃",
+                    "&UnionPlus;": "⊎",
+                    "&Uogon;": "Ų",
+                    "&Uopf;": "\uD835\uDD4C",
+                    "&UpArrow;": "↑",
+                    "&UpArrowBar;": "⤒",
+                    "&UpArrowDownArrow;": "⇅",
+                    "&UpDownArrow;": "↕",
+                    "&UpEquilibrium;": "⥮",
+                    "&UpTee;": "⊥",
+                    "&UpTeeArrow;": "↥",
+                    "&Uparrow;": "⇑",
+                    "&Updownarrow;": "⇕",
+                    "&UpperLeftArrow;": "↖",
+                    "&UpperRightArrow;": "↗",
+                    "&Upsi;": "ϒ",
+                    "&Upsilon;": "Υ",
+                    "&Uring;": "Ů",
+                    "&Uscr;": "\uD835\uDCB0",
+                    "&Utilde;": "Ũ",
+                    "&Uuml": "\xdc",
+                    "&Uuml;": "\xdc",
+                    "&VDash;": "⊫",
+                    "&Vbar;": "⫫",
+                    "&Vcy;": "В",
+                    "&Vdash;": "⊩",
+                    "&Vdashl;": "⫦",
+                    "&Vee;": "⋁",
+                    "&Verbar;": "‖",
+                    "&Vert;": "‖",
+                    "&VerticalBar;": "∣",
+                    "&VerticalLine;": "|",
+                    "&VerticalSeparator;": "❘",
+                    "&VerticalTilde;": "≀",
+                    "&VeryThinSpace;": " ",
+                    "&Vfr;": "\uD835\uDD19",
+                    "&Vopf;": "\uD835\uDD4D",
+                    "&Vscr;": "\uD835\uDCB1",
+                    "&Vvdash;": "⊪",
+                    "&Wcirc;": "Ŵ",
+                    "&Wedge;": "⋀",
+                    "&Wfr;": "\uD835\uDD1A",
+                    "&Wopf;": "\uD835\uDD4E",
+                    "&Wscr;": "\uD835\uDCB2",
+                    "&Xfr;": "\uD835\uDD1B",
+                    "&Xi;": "Ξ",
+                    "&Xopf;": "\uD835\uDD4F",
+                    "&Xscr;": "\uD835\uDCB3",
+                    "&YAcy;": "Я",
+                    "&YIcy;": "Ї",
+                    "&YUcy;": "Ю",
+                    "&Yacute": "\xdd",
+                    "&Yacute;": "\xdd",
+                    "&Ycirc;": "Ŷ",
+                    "&Ycy;": "Ы",
+                    "&Yfr;": "\uD835\uDD1C",
+                    "&Yopf;": "\uD835\uDD50",
+                    "&Yscr;": "\uD835\uDCB4",
+                    "&Yuml;": "Ÿ",
+                    "&ZHcy;": "Ж",
+                    "&Zacute;": "Ź",
+                    "&Zcaron;": "Ž",
+                    "&Zcy;": "З",
+                    "&Zdot;": "Ż",
+                    "&ZeroWidthSpace;": "​",
+                    "&Zeta;": "Ζ",
+                    "&Zfr;": "ℨ",
+                    "&Zopf;": "ℤ",
+                    "&Zscr;": "\uD835\uDCB5",
+                    "&aacute": "\xe1",
+                    "&aacute;": "\xe1",
+                    "&abreve;": "ă",
+                    "&ac;": "∾",
+                    "&acE;": "∾̳",
+                    "&acd;": "∿",
+                    "&acirc": "\xe2",
+                    "&acirc;": "\xe2",
+                    "&acute": "\xb4",
+                    "&acute;": "\xb4",
+                    "&acy;": "а",
+                    "&aelig": "\xe6",
+                    "&aelig;": "\xe6",
+                    "&af;": "⁡",
+                    "&afr;": "\uD835\uDD1E",
+                    "&agrave": "\xe0",
+                    "&agrave;": "\xe0",
+                    "&alefsym;": "ℵ",
+                    "&aleph;": "ℵ",
+                    "&alpha;": "α",
+                    "&amacr;": "ā",
+                    "&amalg;": "⨿",
+                    "&amp": "&",
+                    "&amp;": "&",
+                    "&and;": "∧",
+                    "&andand;": "⩕",
+                    "&andd;": "⩜",
+                    "&andslope;": "⩘",
+                    "&andv;": "⩚",
+                    "&ang;": "∠",
+                    "&ange;": "⦤",
+                    "&angle;": "∠",
+                    "&angmsd;": "∡",
+                    "&angmsdaa;": "⦨",
+                    "&angmsdab;": "⦩",
+                    "&angmsdac;": "⦪",
+                    "&angmsdad;": "⦫",
+                    "&angmsdae;": "⦬",
+                    "&angmsdaf;": "⦭",
+                    "&angmsdag;": "⦮",
+                    "&angmsdah;": "⦯",
+                    "&angrt;": "∟",
+                    "&angrtvb;": "⊾",
+                    "&angrtvbd;": "⦝",
+                    "&angsph;": "∢",
+                    "&angst;": "\xc5",
+                    "&angzarr;": "⍼",
+                    "&aogon;": "ą",
+                    "&aopf;": "\uD835\uDD52",
+                    "&ap;": "≈",
+                    "&apE;": "⩰",
+                    "&apacir;": "⩯",
+                    "&ape;": "≊",
+                    "&apid;": "≋",
+                    "&apos;": "'",
+                    "&approx;": "≈",
+                    "&approxeq;": "≊",
+                    "&aring": "\xe5",
+                    "&aring;": "\xe5",
+                    "&ascr;": "\uD835\uDCB6",
+                    "&ast;": "*",
+                    "&asymp;": "≈",
+                    "&asympeq;": "≍",
+                    "&atilde": "\xe3",
+                    "&atilde;": "\xe3",
+                    "&auml": "\xe4",
+                    "&auml;": "\xe4",
+                    "&awconint;": "∳",
+                    "&awint;": "⨑",
+                    "&bNot;": "⫭",
+                    "&backcong;": "≌",
+                    "&backepsilon;": "϶",
+                    "&backprime;": "‵",
+                    "&backsim;": "∽",
+                    "&backsimeq;": "⋍",
+                    "&barvee;": "⊽",
+                    "&barwed;": "⌅",
+                    "&barwedge;": "⌅",
+                    "&bbrk;": "⎵",
+                    "&bbrktbrk;": "⎶",
+                    "&bcong;": "≌",
+                    "&bcy;": "б",
+                    "&bdquo;": "„",
+                    "&becaus;": "∵",
+                    "&because;": "∵",
+                    "&bemptyv;": "⦰",
+                    "&bepsi;": "϶",
+                    "&bernou;": "ℬ",
+                    "&beta;": "β",
+                    "&beth;": "ℶ",
+                    "&between;": "≬",
+                    "&bfr;": "\uD835\uDD1F",
+                    "&bigcap;": "⋂",
+                    "&bigcirc;": "◯",
+                    "&bigcup;": "⋃",
+                    "&bigodot;": "⨀",
+                    "&bigoplus;": "⨁",
+                    "&bigotimes;": "⨂",
+                    "&bigsqcup;": "⨆",
+                    "&bigstar;": "★",
+                    "&bigtriangledown;": "▽",
+                    "&bigtriangleup;": "△",
+                    "&biguplus;": "⨄",
+                    "&bigvee;": "⋁",
+                    "&bigwedge;": "⋀",
+                    "&bkarow;": "⤍",
+                    "&blacklozenge;": "⧫",
+                    "&blacksquare;": "▪",
+                    "&blacktriangle;": "▴",
+                    "&blacktriangledown;": "▾",
+                    "&blacktriangleleft;": "◂",
+                    "&blacktriangleright;": "▸",
+                    "&blank;": "␣",
+                    "&blk12;": "▒",
+                    "&blk14;": "░",
+                    "&blk34;": "▓",
+                    "&block;": "█",
+                    "&bne;": "=⃥",
+                    "&bnequiv;": "≡⃥",
+                    "&bnot;": "⌐",
+                    "&bopf;": "\uD835\uDD53",
+                    "&bot;": "⊥",
+                    "&bottom;": "⊥",
+                    "&bowtie;": "⋈",
+                    "&boxDL;": "╗",
+                    "&boxDR;": "╔",
+                    "&boxDl;": "╖",
+                    "&boxDr;": "╓",
+                    "&boxH;": "═",
+                    "&boxHD;": "╦",
+                    "&boxHU;": "╩",
+                    "&boxHd;": "╤",
+                    "&boxHu;": "╧",
+                    "&boxUL;": "╝",
+                    "&boxUR;": "╚",
+                    "&boxUl;": "╜",
+                    "&boxUr;": "╙",
+                    "&boxV;": "║",
+                    "&boxVH;": "╬",
+                    "&boxVL;": "╣",
+                    "&boxVR;": "╠",
+                    "&boxVh;": "╫",
+                    "&boxVl;": "╢",
+                    "&boxVr;": "╟",
+                    "&boxbox;": "⧉",
+                    "&boxdL;": "╕",
+                    "&boxdR;": "╒",
+                    "&boxdl;": "┐",
+                    "&boxdr;": "┌",
+                    "&boxh;": "─",
+                    "&boxhD;": "╥",
+                    "&boxhU;": "╨",
+                    "&boxhd;": "┬",
+                    "&boxhu;": "┴",
+                    "&boxminus;": "⊟",
+                    "&boxplus;": "⊞",
+                    "&boxtimes;": "⊠",
+                    "&boxuL;": "╛",
+                    "&boxuR;": "╘",
+                    "&boxul;": "┘",
+                    "&boxur;": "└",
+                    "&boxv;": "│",
+                    "&boxvH;": "╪",
+                    "&boxvL;": "╡",
+                    "&boxvR;": "╞",
+                    "&boxvh;": "┼",
+                    "&boxvl;": "┤",
+                    "&boxvr;": "├",
+                    "&bprime;": "‵",
+                    "&breve;": "˘",
+                    "&brvbar": "\xa6",
+                    "&brvbar;": "\xa6",
+                    "&bscr;": "\uD835\uDCB7",
+                    "&bsemi;": "⁏",
+                    "&bsim;": "∽",
+                    "&bsime;": "⋍",
+                    "&bsol;": "\\",
+                    "&bsolb;": "⧅",
+                    "&bsolhsub;": "⟈",
+                    "&bull;": "•",
+                    "&bullet;": "•",
+                    "&bump;": "≎",
+                    "&bumpE;": "⪮",
+                    "&bumpe;": "≏",
+                    "&bumpeq;": "≏",
+                    "&cacute;": "ć",
+                    "&cap;": "∩",
+                    "&capand;": "⩄",
+                    "&capbrcup;": "⩉",
+                    "&capcap;": "⩋",
+                    "&capcup;": "⩇",
+                    "&capdot;": "⩀",
+                    "&caps;": "∩︀",
+                    "&caret;": "⁁",
+                    "&caron;": "ˇ",
+                    "&ccaps;": "⩍",
+                    "&ccaron;": "č",
+                    "&ccedil": "\xe7",
+                    "&ccedil;": "\xe7",
+                    "&ccirc;": "ĉ",
+                    "&ccups;": "⩌",
+                    "&ccupssm;": "⩐",
+                    "&cdot;": "ċ",
+                    "&cedil": "\xb8",
+                    "&cedil;": "\xb8",
+                    "&cemptyv;": "⦲",
+                    "&cent": "\xa2",
+                    "&cent;": "\xa2",
+                    "&centerdot;": "\xb7",
+                    "&cfr;": "\uD835\uDD20",
+                    "&chcy;": "ч",
+                    "&check;": "✓",
+                    "&checkmark;": "✓",
+                    "&chi;": "χ",
+                    "&cir;": "○",
+                    "&cirE;": "⧃",
+                    "&circ;": "ˆ",
+                    "&circeq;": "≗",
+                    "&circlearrowleft;": "↺",
+                    "&circlearrowright;": "↻",
+                    "&circledR;": "\xae",
+                    "&circledS;": "Ⓢ",
+                    "&circledast;": "⊛",
+                    "&circledcirc;": "⊚",
+                    "&circleddash;": "⊝",
+                    "&cire;": "≗",
+                    "&cirfnint;": "⨐",
+                    "&cirmid;": "⫯",
+                    "&cirscir;": "⧂",
+                    "&clubs;": "♣",
+                    "&clubsuit;": "♣",
+                    "&colon;": ":",
+                    "&colone;": "≔",
+                    "&coloneq;": "≔",
+                    "&comma;": ",",
+                    "&commat;": "@",
+                    "&comp;": "∁",
+                    "&compfn;": "∘",
+                    "&complement;": "∁",
+                    "&complexes;": "ℂ",
+                    "&cong;": "≅",
+                    "&congdot;": "⩭",
+                    "&conint;": "∮",
+                    "&copf;": "\uD835\uDD54",
+                    "&coprod;": "∐",
+                    "&copy": "\xa9",
+                    "&copy;": "\xa9",
+                    "&copysr;": "℗",
+                    "&crarr;": "↵",
+                    "&cross;": "✗",
+                    "&cscr;": "\uD835\uDCB8",
+                    "&csub;": "⫏",
+                    "&csube;": "⫑",
+                    "&csup;": "⫐",
+                    "&csupe;": "⫒",
+                    "&ctdot;": "⋯",
+                    "&cudarrl;": "⤸",
+                    "&cudarrr;": "⤵",
+                    "&cuepr;": "⋞",
+                    "&cuesc;": "⋟",
+                    "&cularr;": "↶",
+                    "&cularrp;": "⤽",
+                    "&cup;": "∪",
+                    "&cupbrcap;": "⩈",
+                    "&cupcap;": "⩆",
+                    "&cupcup;": "⩊",
+                    "&cupdot;": "⊍",
+                    "&cupor;": "⩅",
+                    "&cups;": "∪︀",
+                    "&curarr;": "↷",
+                    "&curarrm;": "⤼",
+                    "&curlyeqprec;": "⋞",
+                    "&curlyeqsucc;": "⋟",
+                    "&curlyvee;": "⋎",
+                    "&curlywedge;": "⋏",
+                    "&curren": "\xa4",
+                    "&curren;": "\xa4",
+                    "&curvearrowleft;": "↶",
+                    "&curvearrowright;": "↷",
+                    "&cuvee;": "⋎",
+                    "&cuwed;": "⋏",
+                    "&cwconint;": "∲",
+                    "&cwint;": "∱",
+                    "&cylcty;": "⌭",
+                    "&dArr;": "⇓",
+                    "&dHar;": "⥥",
+                    "&dagger;": "†",
+                    "&daleth;": "ℸ",
+                    "&darr;": "↓",
+                    "&dash;": "‐",
+                    "&dashv;": "⊣",
+                    "&dbkarow;": "⤏",
+                    "&dblac;": "˝",
+                    "&dcaron;": "ď",
+                    "&dcy;": "д",
+                    "&dd;": "ⅆ",
+                    "&ddagger;": "‡",
+                    "&ddarr;": "⇊",
+                    "&ddotseq;": "⩷",
+                    "&deg": "\xb0",
+                    "&deg;": "\xb0",
+                    "&delta;": "δ",
+                    "&demptyv;": "⦱",
+                    "&dfisht;": "⥿",
+                    "&dfr;": "\uD835\uDD21",
+                    "&dharl;": "⇃",
+                    "&dharr;": "⇂",
+                    "&diam;": "⋄",
+                    "&diamond;": "⋄",
+                    "&diamondsuit;": "♦",
+                    "&diams;": "♦",
+                    "&die;": "\xa8",
+                    "&digamma;": "ϝ",
+                    "&disin;": "⋲",
+                    "&div;": "\xf7",
+                    "&divide": "\xf7",
+                    "&divide;": "\xf7",
+                    "&divideontimes;": "⋇",
+                    "&divonx;": "⋇",
+                    "&djcy;": "ђ",
+                    "&dlcorn;": "⌞",
+                    "&dlcrop;": "⌍",
+                    "&dollar;": "$",
+                    "&dopf;": "\uD835\uDD55",
+                    "&dot;": "˙",
+                    "&doteq;": "≐",
+                    "&doteqdot;": "≑",
+                    "&dotminus;": "∸",
+                    "&dotplus;": "∔",
+                    "&dotsquare;": "⊡",
+                    "&doublebarwedge;": "⌆",
+                    "&downarrow;": "↓",
+                    "&downdownarrows;": "⇊",
+                    "&downharpoonleft;": "⇃",
+                    "&downharpoonright;": "⇂",
+                    "&drbkarow;": "⤐",
+                    "&drcorn;": "⌟",
+                    "&drcrop;": "⌌",
+                    "&dscr;": "\uD835\uDCB9",
+                    "&dscy;": "ѕ",
+                    "&dsol;": "⧶",
+                    "&dstrok;": "đ",
+                    "&dtdot;": "⋱",
+                    "&dtri;": "▿",
+                    "&dtrif;": "▾",
+                    "&duarr;": "⇵",
+                    "&duhar;": "⥯",
+                    "&dwangle;": "⦦",
+                    "&dzcy;": "џ",
+                    "&dzigrarr;": "⟿",
+                    "&eDDot;": "⩷",
+                    "&eDot;": "≑",
+                    "&eacute": "\xe9",
+                    "&eacute;": "\xe9",
+                    "&easter;": "⩮",
+                    "&ecaron;": "ě",
+                    "&ecir;": "≖",
+                    "&ecirc": "\xea",
+                    "&ecirc;": "\xea",
+                    "&ecolon;": "≕",
+                    "&ecy;": "э",
+                    "&edot;": "ė",
+                    "&ee;": "ⅇ",
+                    "&efDot;": "≒",
+                    "&efr;": "\uD835\uDD22",
+                    "&eg;": "⪚",
+                    "&egrave": "\xe8",
+                    "&egrave;": "\xe8",
+                    "&egs;": "⪖",
+                    "&egsdot;": "⪘",
+                    "&el;": "⪙",
+                    "&elinters;": "⏧",
+                    "&ell;": "ℓ",
+                    "&els;": "⪕",
+                    "&elsdot;": "⪗",
+                    "&emacr;": "ē",
+                    "&empty;": "∅",
+                    "&emptyset;": "∅",
+                    "&emptyv;": "∅",
+                    "&emsp13;": " ",
+                    "&emsp14;": " ",
+                    "&emsp;": " ",
+                    "&eng;": "ŋ",
+                    "&ensp;": " ",
+                    "&eogon;": "ę",
+                    "&eopf;": "\uD835\uDD56",
+                    "&epar;": "⋕",
+                    "&eparsl;": "⧣",
+                    "&eplus;": "⩱",
+                    "&epsi;": "ε",
+                    "&epsilon;": "ε",
+                    "&epsiv;": "ϵ",
+                    "&eqcirc;": "≖",
+                    "&eqcolon;": "≕",
+                    "&eqsim;": "≂",
+                    "&eqslantgtr;": "⪖",
+                    "&eqslantless;": "⪕",
+                    "&equals;": "=",
+                    "&equest;": "≟",
+                    "&equiv;": "≡",
+                    "&equivDD;": "⩸",
+                    "&eqvparsl;": "⧥",
+                    "&erDot;": "≓",
+                    "&erarr;": "⥱",
+                    "&escr;": "ℯ",
+                    "&esdot;": "≐",
+                    "&esim;": "≂",
+                    "&eta;": "η",
+                    "&eth": "\xf0",
+                    "&eth;": "\xf0",
+                    "&euml": "\xeb",
+                    "&euml;": "\xeb",
+                    "&euro;": "€",
+                    "&excl;": "!",
+                    "&exist;": "∃",
+                    "&expectation;": "ℰ",
+                    "&exponentiale;": "ⅇ",
+                    "&fallingdotseq;": "≒",
+                    "&fcy;": "ф",
+                    "&female;": "♀",
+                    "&ffilig;": "ﬃ",
+                    "&fflig;": "ﬀ",
+                    "&ffllig;": "ﬄ",
+                    "&ffr;": "\uD835\uDD23",
+                    "&filig;": "ﬁ",
+                    "&fjlig;": "fj",
+                    "&flat;": "♭",
+                    "&fllig;": "ﬂ",
+                    "&fltns;": "▱",
+                    "&fnof;": "ƒ",
+                    "&fopf;": "\uD835\uDD57",
+                    "&forall;": "∀",
+                    "&fork;": "⋔",
+                    "&forkv;": "⫙",
+                    "&fpartint;": "⨍",
+                    "&frac12": "\xbd",
+                    "&frac12;": "\xbd",
+                    "&frac13;": "⅓",
+                    "&frac14": "\xbc",
+                    "&frac14;": "\xbc",
+                    "&frac15;": "⅕",
+                    "&frac16;": "⅙",
+                    "&frac18;": "⅛",
+                    "&frac23;": "⅔",
+                    "&frac25;": "⅖",
+                    "&frac34": "\xbe",
+                    "&frac34;": "\xbe",
+                    "&frac35;": "⅗",
+                    "&frac38;": "⅜",
+                    "&frac45;": "⅘",
+                    "&frac56;": "⅚",
+                    "&frac58;": "⅝",
+                    "&frac78;": "⅞",
+                    "&frasl;": "⁄",
+                    "&frown;": "⌢",
+                    "&fscr;": "\uD835\uDCBB",
+                    "&gE;": "≧",
+                    "&gEl;": "⪌",
+                    "&gacute;": "ǵ",
+                    "&gamma;": "γ",
+                    "&gammad;": "ϝ",
+                    "&gap;": "⪆",
+                    "&gbreve;": "ğ",
+                    "&gcirc;": "ĝ",
+                    "&gcy;": "г",
+                    "&gdot;": "ġ",
+                    "&ge;": "≥",
+                    "&gel;": "⋛",
+                    "&geq;": "≥",
+                    "&geqq;": "≧",
+                    "&geqslant;": "⩾",
+                    "&ges;": "⩾",
+                    "&gescc;": "⪩",
+                    "&gesdot;": "⪀",
+                    "&gesdoto;": "⪂",
+                    "&gesdotol;": "⪄",
+                    "&gesl;": "⋛︀",
+                    "&gesles;": "⪔",
+                    "&gfr;": "\uD835\uDD24",
+                    "&gg;": "≫",
+                    "&ggg;": "⋙",
+                    "&gimel;": "ℷ",
+                    "&gjcy;": "ѓ",
+                    "&gl;": "≷",
+                    "&glE;": "⪒",
+                    "&gla;": "⪥",
+                    "&glj;": "⪤",
+                    "&gnE;": "≩",
+                    "&gnap;": "⪊",
+                    "&gnapprox;": "⪊",
+                    "&gne;": "⪈",
+                    "&gneq;": "⪈",
+                    "&gneqq;": "≩",
+                    "&gnsim;": "⋧",
+                    "&gopf;": "\uD835\uDD58",
+                    "&grave;": "`",
+                    "&gscr;": "ℊ",
+                    "&gsim;": "≳",
+                    "&gsime;": "⪎",
+                    "&gsiml;": "⪐",
+                    "&gt": ">",
+                    "&gt;": ">",
+                    "&gtcc;": "⪧",
+                    "&gtcir;": "⩺",
+                    "&gtdot;": "⋗",
+                    "&gtlPar;": "⦕",
+                    "&gtquest;": "⩼",
+                    "&gtrapprox;": "⪆",
+                    "&gtrarr;": "⥸",
+                    "&gtrdot;": "⋗",
+                    "&gtreqless;": "⋛",
+                    "&gtreqqless;": "⪌",
+                    "&gtrless;": "≷",
+                    "&gtrsim;": "≳",
+                    "&gvertneqq;": "≩︀",
+                    "&gvnE;": "≩︀",
+                    "&hArr;": "⇔",
+                    "&hairsp;": " ",
+                    "&half;": "\xbd",
+                    "&hamilt;": "ℋ",
+                    "&hardcy;": "ъ",
+                    "&harr;": "↔",
+                    "&harrcir;": "⥈",
+                    "&harrw;": "↭",
+                    "&hbar;": "ℏ",
+                    "&hcirc;": "ĥ",
+                    "&hearts;": "♥",
+                    "&heartsuit;": "♥",
+                    "&hellip;": "…",
+                    "&hercon;": "⊹",
+                    "&hfr;": "\uD835\uDD25",
+                    "&hksearow;": "⤥",
+                    "&hkswarow;": "⤦",
+                    "&hoarr;": "⇿",
+                    "&homtht;": "∻",
+                    "&hookleftarrow;": "↩",
+                    "&hookrightarrow;": "↪",
+                    "&hopf;": "\uD835\uDD59",
+                    "&horbar;": "―",
+                    "&hscr;": "\uD835\uDCBD",
+                    "&hslash;": "ℏ",
+                    "&hstrok;": "ħ",
+                    "&hybull;": "⁃",
+                    "&hyphen;": "‐",
+                    "&iacute": "\xed",
+                    "&iacute;": "\xed",
+                    "&ic;": "⁣",
+                    "&icirc": "\xee",
+                    "&icirc;": "\xee",
+                    "&icy;": "и",
+                    "&iecy;": "е",
+                    "&iexcl": "\xa1",
+                    "&iexcl;": "\xa1",
+                    "&iff;": "⇔",
+                    "&ifr;": "\uD835\uDD26",
+                    "&igrave": "\xec",
+                    "&igrave;": "\xec",
+                    "&ii;": "ⅈ",
+                    "&iiiint;": "⨌",
+                    "&iiint;": "∭",
+                    "&iinfin;": "⧜",
+                    "&iiota;": "℩",
+                    "&ijlig;": "ĳ",
+                    "&imacr;": "ī",
+                    "&image;": "ℑ",
+                    "&imagline;": "ℐ",
+                    "&imagpart;": "ℑ",
+                    "&imath;": "ı",
+                    "&imof;": "⊷",
+                    "&imped;": "Ƶ",
+                    "&in;": "∈",
+                    "&incare;": "℅",
+                    "&infin;": "∞",
+                    "&infintie;": "⧝",
+                    "&inodot;": "ı",
+                    "&int;": "∫",
+                    "&intcal;": "⊺",
+                    "&integers;": "ℤ",
+                    "&intercal;": "⊺",
+                    "&intlarhk;": "⨗",
+                    "&intprod;": "⨼",
+                    "&iocy;": "ё",
+                    "&iogon;": "į",
+                    "&iopf;": "\uD835\uDD5A",
+                    "&iota;": "ι",
+                    "&iprod;": "⨼",
+                    "&iquest": "\xbf",
+                    "&iquest;": "\xbf",
+                    "&iscr;": "\uD835\uDCBE",
+                    "&isin;": "∈",
+                    "&isinE;": "⋹",
+                    "&isindot;": "⋵",
+                    "&isins;": "⋴",
+                    "&isinsv;": "⋳",
+                    "&isinv;": "∈",
+                    "&it;": "⁢",
+                    "&itilde;": "ĩ",
+                    "&iukcy;": "і",
+                    "&iuml": "\xef",
+                    "&iuml;": "\xef",
+                    "&jcirc;": "ĵ",
+                    "&jcy;": "й",
+                    "&jfr;": "\uD835\uDD27",
+                    "&jmath;": "ȷ",
+                    "&jopf;": "\uD835\uDD5B",
+                    "&jscr;": "\uD835\uDCBF",
+                    "&jsercy;": "ј",
+                    "&jukcy;": "є",
+                    "&kappa;": "κ",
+                    "&kappav;": "ϰ",
+                    "&kcedil;": "ķ",
+                    "&kcy;": "к",
+                    "&kfr;": "\uD835\uDD28",
+                    "&kgreen;": "ĸ",
+                    "&khcy;": "х",
+                    "&kjcy;": "ќ",
+                    "&kopf;": "\uD835\uDD5C",
+                    "&kscr;": "\uD835\uDCC0",
+                    "&lAarr;": "⇚",
+                    "&lArr;": "⇐",
+                    "&lAtail;": "⤛",
+                    "&lBarr;": "⤎",
+                    "&lE;": "≦",
+                    "&lEg;": "⪋",
+                    "&lHar;": "⥢",
+                    "&lacute;": "ĺ",
+                    "&laemptyv;": "⦴",
+                    "&lagran;": "ℒ",
+                    "&lambda;": "λ",
+                    "&lang;": "⟨",
+                    "&langd;": "⦑",
+                    "&langle;": "⟨",
+                    "&lap;": "⪅",
+                    "&laquo": "\xab",
+                    "&laquo;": "\xab",
+                    "&larr;": "←",
+                    "&larrb;": "⇤",
+                    "&larrbfs;": "⤟",
+                    "&larrfs;": "⤝",
+                    "&larrhk;": "↩",
+                    "&larrlp;": "↫",
+                    "&larrpl;": "⤹",
+                    "&larrsim;": "⥳",
+                    "&larrtl;": "↢",
+                    "&lat;": "⪫",
+                    "&latail;": "⤙",
+                    "&late;": "⪭",
+                    "&lates;": "⪭︀",
+                    "&lbarr;": "⤌",
+                    "&lbbrk;": "❲",
+                    "&lbrace;": "{",
+                    "&lbrack;": "[",
+                    "&lbrke;": "⦋",
+                    "&lbrksld;": "⦏",
+                    "&lbrkslu;": "⦍",
+                    "&lcaron;": "ľ",
+                    "&lcedil;": "ļ",
+                    "&lceil;": "⌈",
+                    "&lcub;": "{",
+                    "&lcy;": "л",
+                    "&ldca;": "⤶",
+                    "&ldquo;": "“",
+                    "&ldquor;": "„",
+                    "&ldrdhar;": "⥧",
+                    "&ldrushar;": "⥋",
+                    "&ldsh;": "↲",
+                    "&le;": "≤",
+                    "&leftarrow;": "←",
+                    "&leftarrowtail;": "↢",
+                    "&leftharpoondown;": "↽",
+                    "&leftharpoonup;": "↼",
+                    "&leftleftarrows;": "⇇",
+                    "&leftrightarrow;": "↔",
+                    "&leftrightarrows;": "⇆",
+                    "&leftrightharpoons;": "⇋",
+                    "&leftrightsquigarrow;": "↭",
+                    "&leftthreetimes;": "⋋",
+                    "&leg;": "⋚",
+                    "&leq;": "≤",
+                    "&leqq;": "≦",
+                    "&leqslant;": "⩽",
+                    "&les;": "⩽",
+                    "&lescc;": "⪨",
+                    "&lesdot;": "⩿",
+                    "&lesdoto;": "⪁",
+                    "&lesdotor;": "⪃",
+                    "&lesg;": "⋚︀",
+                    "&lesges;": "⪓",
+                    "&lessapprox;": "⪅",
+                    "&lessdot;": "⋖",
+                    "&lesseqgtr;": "⋚",
+                    "&lesseqqgtr;": "⪋",
+                    "&lessgtr;": "≶",
+                    "&lesssim;": "≲",
+                    "&lfisht;": "⥼",
+                    "&lfloor;": "⌊",
+                    "&lfr;": "\uD835\uDD29",
+                    "&lg;": "≶",
+                    "&lgE;": "⪑",
+                    "&lhard;": "↽",
+                    "&lharu;": "↼",
+                    "&lharul;": "⥪",
+                    "&lhblk;": "▄",
+                    "&ljcy;": "љ",
+                    "&ll;": "≪",
+                    "&llarr;": "⇇",
+                    "&llcorner;": "⌞",
+                    "&llhard;": "⥫",
+                    "&lltri;": "◺",
+                    "&lmidot;": "ŀ",
+                    "&lmoust;": "⎰",
+                    "&lmoustache;": "⎰",
+                    "&lnE;": "≨",
+                    "&lnap;": "⪉",
+                    "&lnapprox;": "⪉",
+                    "&lne;": "⪇",
+                    "&lneq;": "⪇",
+                    "&lneqq;": "≨",
+                    "&lnsim;": "⋦",
+                    "&loang;": "⟬",
+                    "&loarr;": "⇽",
+                    "&lobrk;": "⟦",
+                    "&longleftarrow;": "⟵",
+                    "&longleftrightarrow;": "⟷",
+                    "&longmapsto;": "⟼",
+                    "&longrightarrow;": "⟶",
+                    "&looparrowleft;": "↫",
+                    "&looparrowright;": "↬",
+                    "&lopar;": "⦅",
+                    "&lopf;": "\uD835\uDD5D",
+                    "&loplus;": "⨭",
+                    "&lotimes;": "⨴",
+                    "&lowast;": "∗",
+                    "&lowbar;": "_",
+                    "&loz;": "◊",
+                    "&lozenge;": "◊",
+                    "&lozf;": "⧫",
+                    "&lpar;": "(",
+                    "&lparlt;": "⦓",
+                    "&lrarr;": "⇆",
+                    "&lrcorner;": "⌟",
+                    "&lrhar;": "⇋",
+                    "&lrhard;": "⥭",
+                    "&lrm;": "‎",
+                    "&lrtri;": "⊿",
+                    "&lsaquo;": "‹",
+                    "&lscr;": "\uD835\uDCC1",
+                    "&lsh;": "↰",
+                    "&lsim;": "≲",
+                    "&lsime;": "⪍",
+                    "&lsimg;": "⪏",
+                    "&lsqb;": "[",
+                    "&lsquo;": "‘",
+                    "&lsquor;": "‚",
+                    "&lstrok;": "ł",
+                    "&lt": "<",
+                    "&lt;": "<",
+                    "&ltcc;": "⪦",
+                    "&ltcir;": "⩹",
+                    "&ltdot;": "⋖",
+                    "&lthree;": "⋋",
+                    "&ltimes;": "⋉",
+                    "&ltlarr;": "⥶",
+                    "&ltquest;": "⩻",
+                    "&ltrPar;": "⦖",
+                    "&ltri;": "◃",
+                    "&ltrie;": "⊴",
+                    "&ltrif;": "◂",
+                    "&lurdshar;": "⥊",
+                    "&luruhar;": "⥦",
+                    "&lvertneqq;": "≨︀",
+                    "&lvnE;": "≨︀",
+                    "&mDDot;": "∺",
+                    "&macr": "\xaf",
+                    "&macr;": "\xaf",
+                    "&male;": "♂",
+                    "&malt;": "✠",
+                    "&maltese;": "✠",
+                    "&map;": "↦",
+                    "&mapsto;": "↦",
+                    "&mapstodown;": "↧",
+                    "&mapstoleft;": "↤",
+                    "&mapstoup;": "↥",
+                    "&marker;": "▮",
+                    "&mcomma;": "⨩",
+                    "&mcy;": "м",
+                    "&mdash;": "—",
+                    "&measuredangle;": "∡",
+                    "&mfr;": "\uD835\uDD2A",
+                    "&mho;": "℧",
+                    "&micro": "\xb5",
+                    "&micro;": "\xb5",
+                    "&mid;": "∣",
+                    "&midast;": "*",
+                    "&midcir;": "⫰",
+                    "&middot": "\xb7",
+                    "&middot;": "\xb7",
+                    "&minus;": "−",
+                    "&minusb;": "⊟",
+                    "&minusd;": "∸",
+                    "&minusdu;": "⨪",
+                    "&mlcp;": "⫛",
+                    "&mldr;": "…",
+                    "&mnplus;": "∓",
+                    "&models;": "⊧",
+                    "&mopf;": "\uD835\uDD5E",
+                    "&mp;": "∓",
+                    "&mscr;": "\uD835\uDCC2",
+                    "&mstpos;": "∾",
+                    "&mu;": "μ",
+                    "&multimap;": "⊸",
+                    "&mumap;": "⊸",
+                    "&nGg;": "⋙̸",
+                    "&nGt;": "≫⃒",
+                    "&nGtv;": "≫̸",
+                    "&nLeftarrow;": "⇍",
+                    "&nLeftrightarrow;": "⇎",
+                    "&nLl;": "⋘̸",
+                    "&nLt;": "≪⃒",
+                    "&nLtv;": "≪̸",
+                    "&nRightarrow;": "⇏",
+                    "&nVDash;": "⊯",
+                    "&nVdash;": "⊮",
+                    "&nabla;": "∇",
+                    "&nacute;": "ń",
+                    "&nang;": "∠⃒",
+                    "&nap;": "≉",
+                    "&napE;": "⩰̸",
+                    "&napid;": "≋̸",
+                    "&napos;": "ŉ",
+                    "&napprox;": "≉",
+                    "&natur;": "♮",
+                    "&natural;": "♮",
+                    "&naturals;": "ℕ",
+                    "&nbsp": "\xa0",
+                    "&nbsp;": "\xa0",
+                    "&nbump;": "≎̸",
+                    "&nbumpe;": "≏̸",
+                    "&ncap;": "⩃",
+                    "&ncaron;": "ň",
+                    "&ncedil;": "ņ",
+                    "&ncong;": "≇",
+                    "&ncongdot;": "⩭̸",
+                    "&ncup;": "⩂",
+                    "&ncy;": "н",
+                    "&ndash;": "–",
+                    "&ne;": "≠",
+                    "&neArr;": "⇗",
+                    "&nearhk;": "⤤",
+                    "&nearr;": "↗",
+                    "&nearrow;": "↗",
+                    "&nedot;": "≐̸",
+                    "&nequiv;": "≢",
+                    "&nesear;": "⤨",
+                    "&nesim;": "≂̸",
+                    "&nexist;": "∄",
+                    "&nexists;": "∄",
+                    "&nfr;": "\uD835\uDD2B",
+                    "&ngE;": "≧̸",
+                    "&nge;": "≱",
+                    "&ngeq;": "≱",
+                    "&ngeqq;": "≧̸",
+                    "&ngeqslant;": "⩾̸",
+                    "&nges;": "⩾̸",
+                    "&ngsim;": "≵",
+                    "&ngt;": "≯",
+                    "&ngtr;": "≯",
+                    "&nhArr;": "⇎",
+                    "&nharr;": "↮",
+                    "&nhpar;": "⫲",
+                    "&ni;": "∋",
+                    "&nis;": "⋼",
+                    "&nisd;": "⋺",
+                    "&niv;": "∋",
+                    "&njcy;": "њ",
+                    "&nlArr;": "⇍",
+                    "&nlE;": "≦̸",
+                    "&nlarr;": "↚",
+                    "&nldr;": "‥",
+                    "&nle;": "≰",
+                    "&nleftarrow;": "↚",
+                    "&nleftrightarrow;": "↮",
+                    "&nleq;": "≰",
+                    "&nleqq;": "≦̸",
+                    "&nleqslant;": "⩽̸",
+                    "&nles;": "⩽̸",
+                    "&nless;": "≮",
+                    "&nlsim;": "≴",
+                    "&nlt;": "≮",
+                    "&nltri;": "⋪",
+                    "&nltrie;": "⋬",
+                    "&nmid;": "∤",
+                    "&nopf;": "\uD835\uDD5F",
+                    "&not": "\xac",
+                    "&not;": "\xac",
+                    "&notin;": "∉",
+                    "&notinE;": "⋹̸",
+                    "&notindot;": "⋵̸",
+                    "&notinva;": "∉",
+                    "&notinvb;": "⋷",
+                    "&notinvc;": "⋶",
+                    "&notni;": "∌",
+                    "&notniva;": "∌",
+                    "&notnivb;": "⋾",
+                    "&notnivc;": "⋽",
+                    "&npar;": "∦",
+                    "&nparallel;": "∦",
+                    "&nparsl;": "⫽⃥",
+                    "&npart;": "∂̸",
+                    "&npolint;": "⨔",
+                    "&npr;": "⊀",
+                    "&nprcue;": "⋠",
+                    "&npre;": "⪯̸",
+                    "&nprec;": "⊀",
+                    "&npreceq;": "⪯̸",
+                    "&nrArr;": "⇏",
+                    "&nrarr;": "↛",
+                    "&nrarrc;": "⤳̸",
+                    "&nrarrw;": "↝̸",
+                    "&nrightarrow;": "↛",
+                    "&nrtri;": "⋫",
+                    "&nrtrie;": "⋭",
+                    "&nsc;": "⊁",
+                    "&nsccue;": "⋡",
+                    "&nsce;": "⪰̸",
+                    "&nscr;": "\uD835\uDCC3",
+                    "&nshortmid;": "∤",
+                    "&nshortparallel;": "∦",
+                    "&nsim;": "≁",
+                    "&nsime;": "≄",
+                    "&nsimeq;": "≄",
+                    "&nsmid;": "∤",
+                    "&nspar;": "∦",
+                    "&nsqsube;": "⋢",
+                    "&nsqsupe;": "⋣",
+                    "&nsub;": "⊄",
+                    "&nsubE;": "⫅̸",
+                    "&nsube;": "⊈",
+                    "&nsubset;": "⊂⃒",
+                    "&nsubseteq;": "⊈",
+                    "&nsubseteqq;": "⫅̸",
+                    "&nsucc;": "⊁",
+                    "&nsucceq;": "⪰̸",
+                    "&nsup;": "⊅",
+                    "&nsupE;": "⫆̸",
+                    "&nsupe;": "⊉",
+                    "&nsupset;": "⊃⃒",
+                    "&nsupseteq;": "⊉",
+                    "&nsupseteqq;": "⫆̸",
+                    "&ntgl;": "≹",
+                    "&ntilde": "\xf1",
+                    "&ntilde;": "\xf1",
+                    "&ntlg;": "≸",
+                    "&ntriangleleft;": "⋪",
+                    "&ntrianglelefteq;": "⋬",
+                    "&ntriangleright;": "⋫",
+                    "&ntrianglerighteq;": "⋭",
+                    "&nu;": "ν",
+                    "&num;": "#",
+                    "&numero;": "№",
+                    "&numsp;": " ",
+                    "&nvDash;": "⊭",
+                    "&nvHarr;": "⤄",
+                    "&nvap;": "≍⃒",
+                    "&nvdash;": "⊬",
+                    "&nvge;": "≥⃒",
+                    "&nvgt;": ">⃒",
+                    "&nvinfin;": "⧞",
+                    "&nvlArr;": "⤂",
+                    "&nvle;": "≤⃒",
+                    "&nvlt;": "<⃒",
+                    "&nvltrie;": "⊴⃒",
+                    "&nvrArr;": "⤃",
+                    "&nvrtrie;": "⊵⃒",
+                    "&nvsim;": "∼⃒",
+                    "&nwArr;": "⇖",
+                    "&nwarhk;": "⤣",
+                    "&nwarr;": "↖",
+                    "&nwarrow;": "↖",
+                    "&nwnear;": "⤧",
+                    "&oS;": "Ⓢ",
+                    "&oacute": "\xf3",
+                    "&oacute;": "\xf3",
+                    "&oast;": "⊛",
+                    "&ocir;": "⊚",
+                    "&ocirc": "\xf4",
+                    "&ocirc;": "\xf4",
+                    "&ocy;": "о",
+                    "&odash;": "⊝",
+                    "&odblac;": "ő",
+                    "&odiv;": "⨸",
+                    "&odot;": "⊙",
+                    "&odsold;": "⦼",
+                    "&oelig;": "œ",
+                    "&ofcir;": "⦿",
+                    "&ofr;": "\uD835\uDD2C",
+                    "&ogon;": "˛",
+                    "&ograve": "\xf2",
+                    "&ograve;": "\xf2",
+                    "&ogt;": "⧁",
+                    "&ohbar;": "⦵",
+                    "&ohm;": "Ω",
+                    "&oint;": "∮",
+                    "&olarr;": "↺",
+                    "&olcir;": "⦾",
+                    "&olcross;": "⦻",
+                    "&oline;": "‾",
+                    "&olt;": "⧀",
+                    "&omacr;": "ō",
+                    "&omega;": "ω",
+                    "&omicron;": "ο",
+                    "&omid;": "⦶",
+                    "&ominus;": "⊖",
+                    "&oopf;": "\uD835\uDD60",
+                    "&opar;": "⦷",
+                    "&operp;": "⦹",
+                    "&oplus;": "⊕",
+                    "&or;": "∨",
+                    "&orarr;": "↻",
+                    "&ord;": "⩝",
+                    "&order;": "ℴ",
+                    "&orderof;": "ℴ",
+                    "&ordf": "\xaa",
+                    "&ordf;": "\xaa",
+                    "&ordm": "\xba",
+                    "&ordm;": "\xba",
+                    "&origof;": "⊶",
+                    "&oror;": "⩖",
+                    "&orslope;": "⩗",
+                    "&orv;": "⩛",
+                    "&oscr;": "ℴ",
+                    "&oslash": "\xf8",
+                    "&oslash;": "\xf8",
+                    "&osol;": "⊘",
+                    "&otilde": "\xf5",
+                    "&otilde;": "\xf5",
+                    "&otimes;": "⊗",
+                    "&otimesas;": "⨶",
+                    "&ouml": "\xf6",
+                    "&ouml;": "\xf6",
+                    "&ovbar;": "⌽",
+                    "&par;": "∥",
+                    "&para": "\xb6",
+                    "&para;": "\xb6",
+                    "&parallel;": "∥",
+                    "&parsim;": "⫳",
+                    "&parsl;": "⫽",
+                    "&part;": "∂",
+                    "&pcy;": "п",
+                    "&percnt;": "%",
+                    "&period;": ".",
+                    "&permil;": "‰",
+                    "&perp;": "⊥",
+                    "&pertenk;": "‱",
+                    "&pfr;": "\uD835\uDD2D",
+                    "&phi;": "φ",
+                    "&phiv;": "ϕ",
+                    "&phmmat;": "ℳ",
+                    "&phone;": "☎",
+                    "&pi;": "π",
+                    "&pitchfork;": "⋔",
+                    "&piv;": "ϖ",
+                    "&planck;": "ℏ",
+                    "&planckh;": "ℎ",
+                    "&plankv;": "ℏ",
+                    "&plus;": "+",
+                    "&plusacir;": "⨣",
+                    "&plusb;": "⊞",
+                    "&pluscir;": "⨢",
+                    "&plusdo;": "∔",
+                    "&plusdu;": "⨥",
+                    "&pluse;": "⩲",
+                    "&plusmn": "\xb1",
+                    "&plusmn;": "\xb1",
+                    "&plussim;": "⨦",
+                    "&plustwo;": "⨧",
+                    "&pm;": "\xb1",
+                    "&pointint;": "⨕",
+                    "&popf;": "\uD835\uDD61",
+                    "&pound": "\xa3",
+                    "&pound;": "\xa3",
+                    "&pr;": "≺",
+                    "&prE;": "⪳",
+                    "&prap;": "⪷",
+                    "&prcue;": "≼",
+                    "&pre;": "⪯",
+                    "&prec;": "≺",
+                    "&precapprox;": "⪷",
+                    "&preccurlyeq;": "≼",
+                    "&preceq;": "⪯",
+                    "&precnapprox;": "⪹",
+                    "&precneqq;": "⪵",
+                    "&precnsim;": "⋨",
+                    "&precsim;": "≾",
+                    "&prime;": "′",
+                    "&primes;": "ℙ",
+                    "&prnE;": "⪵",
+                    "&prnap;": "⪹",
+                    "&prnsim;": "⋨",
+                    "&prod;": "∏",
+                    "&profalar;": "⌮",
+                    "&profline;": "⌒",
+                    "&profsurf;": "⌓",
+                    "&prop;": "∝",
+                    "&propto;": "∝",
+                    "&prsim;": "≾",
+                    "&prurel;": "⊰",
+                    "&pscr;": "\uD835\uDCC5",
+                    "&psi;": "ψ",
+                    "&puncsp;": " ",
+                    "&qfr;": "\uD835\uDD2E",
+                    "&qint;": "⨌",
+                    "&qopf;": "\uD835\uDD62",
+                    "&qprime;": "⁗",
+                    "&qscr;": "\uD835\uDCC6",
+                    "&quaternions;": "ℍ",
+                    "&quatint;": "⨖",
+                    "&quest;": "?",
+                    "&questeq;": "≟",
+                    "&quot": '"',
+                    "&quot;": '"',
+                    "&rAarr;": "⇛",
+                    "&rArr;": "⇒",
+                    "&rAtail;": "⤜",
+                    "&rBarr;": "⤏",
+                    "&rHar;": "⥤",
+                    "&race;": "∽̱",
+                    "&racute;": "ŕ",
+                    "&radic;": "√",
+                    "&raemptyv;": "⦳",
+                    "&rang;": "⟩",
+                    "&rangd;": "⦒",
+                    "&range;": "⦥",
+                    "&rangle;": "⟩",
+                    "&raquo": "\xbb",
+                    "&raquo;": "\xbb",
+                    "&rarr;": "→",
+                    "&rarrap;": "⥵",
+                    "&rarrb;": "⇥",
+                    "&rarrbfs;": "⤠",
+                    "&rarrc;": "⤳",
+                    "&rarrfs;": "⤞",
+                    "&rarrhk;": "↪",
+                    "&rarrlp;": "↬",
+                    "&rarrpl;": "⥅",
+                    "&rarrsim;": "⥴",
+                    "&rarrtl;": "↣",
+                    "&rarrw;": "↝",
+                    "&ratail;": "⤚",
+                    "&ratio;": "∶",
+                    "&rationals;": "ℚ",
+                    "&rbarr;": "⤍",
+                    "&rbbrk;": "❳",
+                    "&rbrace;": "}",
+                    "&rbrack;": "]",
+                    "&rbrke;": "⦌",
+                    "&rbrksld;": "⦎",
+                    "&rbrkslu;": "⦐",
+                    "&rcaron;": "ř",
+                    "&rcedil;": "ŗ",
+                    "&rceil;": "⌉",
+                    "&rcub;": "}",
+                    "&rcy;": "р",
+                    "&rdca;": "⤷",
+                    "&rdldhar;": "⥩",
+                    "&rdquo;": "”",
+                    "&rdquor;": "”",
+                    "&rdsh;": "↳",
+                    "&real;": "ℜ",
+                    "&realine;": "ℛ",
+                    "&realpart;": "ℜ",
+                    "&reals;": "ℝ",
+                    "&rect;": "▭",
+                    "&reg": "\xae",
+                    "&reg;": "\xae",
+                    "&rfisht;": "⥽",
+                    "&rfloor;": "⌋",
+                    "&rfr;": "\uD835\uDD2F",
+                    "&rhard;": "⇁",
+                    "&rharu;": "⇀",
+                    "&rharul;": "⥬",
+                    "&rho;": "ρ",
+                    "&rhov;": "ϱ",
+                    "&rightarrow;": "→",
+                    "&rightarrowtail;": "↣",
+                    "&rightharpoondown;": "⇁",
+                    "&rightharpoonup;": "⇀",
+                    "&rightleftarrows;": "⇄",
+                    "&rightleftharpoons;": "⇌",
+                    "&rightrightarrows;": "⇉",
+                    "&rightsquigarrow;": "↝",
+                    "&rightthreetimes;": "⋌",
+                    "&ring;": "˚",
+                    "&risingdotseq;": "≓",
+                    "&rlarr;": "⇄",
+                    "&rlhar;": "⇌",
+                    "&rlm;": "‏",
+                    "&rmoust;": "⎱",
+                    "&rmoustache;": "⎱",
+                    "&rnmid;": "⫮",
+                    "&roang;": "⟭",
+                    "&roarr;": "⇾",
+                    "&robrk;": "⟧",
+                    "&ropar;": "⦆",
+                    "&ropf;": "\uD835\uDD63",
+                    "&roplus;": "⨮",
+                    "&rotimes;": "⨵",
+                    "&rpar;": ")",
+                    "&rpargt;": "⦔",
+                    "&rppolint;": "⨒",
+                    "&rrarr;": "⇉",
+                    "&rsaquo;": "›",
+                    "&rscr;": "\uD835\uDCC7",
+                    "&rsh;": "↱",
+                    "&rsqb;": "]",
+                    "&rsquo;": "’",
+                    "&rsquor;": "’",
+                    "&rthree;": "⋌",
+                    "&rtimes;": "⋊",
+                    "&rtri;": "▹",
+                    "&rtrie;": "⊵",
+                    "&rtrif;": "▸",
+                    "&rtriltri;": "⧎",
+                    "&ruluhar;": "⥨",
+                    "&rx;": "℞",
+                    "&sacute;": "ś",
+                    "&sbquo;": "‚",
+                    "&sc;": "≻",
+                    "&scE;": "⪴",
+                    "&scap;": "⪸",
+                    "&scaron;": "š",
+                    "&sccue;": "≽",
+                    "&sce;": "⪰",
+                    "&scedil;": "ş",
+                    "&scirc;": "ŝ",
+                    "&scnE;": "⪶",
+                    "&scnap;": "⪺",
+                    "&scnsim;": "⋩",
+                    "&scpolint;": "⨓",
+                    "&scsim;": "≿",
+                    "&scy;": "с",
+                    "&sdot;": "⋅",
+                    "&sdotb;": "⊡",
+                    "&sdote;": "⩦",
+                    "&seArr;": "⇘",
+                    "&searhk;": "⤥",
+                    "&searr;": "↘",
+                    "&searrow;": "↘",
+                    "&sect": "\xa7",
+                    "&sect;": "\xa7",
+                    "&semi;": ";",
+                    "&seswar;": "⤩",
+                    "&setminus;": "∖",
+                    "&setmn;": "∖",
+                    "&sext;": "✶",
+                    "&sfr;": "\uD835\uDD30",
+                    "&sfrown;": "⌢",
+                    "&sharp;": "♯",
+                    "&shchcy;": "щ",
+                    "&shcy;": "ш",
+                    "&shortmid;": "∣",
+                    "&shortparallel;": "∥",
+                    "&shy": "\xad",
+                    "&shy;": "\xad",
+                    "&sigma;": "σ",
+                    "&sigmaf;": "ς",
+                    "&sigmav;": "ς",
+                    "&sim;": "∼",
+                    "&simdot;": "⩪",
+                    "&sime;": "≃",
+                    "&simeq;": "≃",
+                    "&simg;": "⪞",
+                    "&simgE;": "⪠",
+                    "&siml;": "⪝",
+                    "&simlE;": "⪟",
+                    "&simne;": "≆",
+                    "&simplus;": "⨤",
+                    "&simrarr;": "⥲",
+                    "&slarr;": "←",
+                    "&smallsetminus;": "∖",
+                    "&smashp;": "⨳",
+                    "&smeparsl;": "⧤",
+                    "&smid;": "∣",
+                    "&smile;": "⌣",
+                    "&smt;": "⪪",
+                    "&smte;": "⪬",
+                    "&smtes;": "⪬︀",
+                    "&softcy;": "ь",
+                    "&sol;": "/",
+                    "&solb;": "⧄",
+                    "&solbar;": "⌿",
+                    "&sopf;": "\uD835\uDD64",
+                    "&spades;": "♠",
+                    "&spadesuit;": "♠",
+                    "&spar;": "∥",
+                    "&sqcap;": "⊓",
+                    "&sqcaps;": "⊓︀",
+                    "&sqcup;": "⊔",
+                    "&sqcups;": "⊔︀",
+                    "&sqsub;": "⊏",
+                    "&sqsube;": "⊑",
+                    "&sqsubset;": "⊏",
+                    "&sqsubseteq;": "⊑",
+                    "&sqsup;": "⊐",
+                    "&sqsupe;": "⊒",
+                    "&sqsupset;": "⊐",
+                    "&sqsupseteq;": "⊒",
+                    "&squ;": "□",
+                    "&square;": "□",
+                    "&squarf;": "▪",
+                    "&squf;": "▪",
+                    "&srarr;": "→",
+                    "&sscr;": "\uD835\uDCC8",
+                    "&ssetmn;": "∖",
+                    "&ssmile;": "⌣",
+                    "&sstarf;": "⋆",
+                    "&star;": "☆",
+                    "&starf;": "★",
+                    "&straightepsilon;": "ϵ",
+                    "&straightphi;": "ϕ",
+                    "&strns;": "\xaf",
+                    "&sub;": "⊂",
+                    "&subE;": "⫅",
+                    "&subdot;": "⪽",
+                    "&sube;": "⊆",
+                    "&subedot;": "⫃",
+                    "&submult;": "⫁",
+                    "&subnE;": "⫋",
+                    "&subne;": "⊊",
+                    "&subplus;": "⪿",
+                    "&subrarr;": "⥹",
+                    "&subset;": "⊂",
+                    "&subseteq;": "⊆",
+                    "&subseteqq;": "⫅",
+                    "&subsetneq;": "⊊",
+                    "&subsetneqq;": "⫋",
+                    "&subsim;": "⫇",
+                    "&subsub;": "⫕",
+                    "&subsup;": "⫓",
+                    "&succ;": "≻",
+                    "&succapprox;": "⪸",
+                    "&succcurlyeq;": "≽",
+                    "&succeq;": "⪰",
+                    "&succnapprox;": "⪺",
+                    "&succneqq;": "⪶",
+                    "&succnsim;": "⋩",
+                    "&succsim;": "≿",
+                    "&sum;": "∑",
+                    "&sung;": "♪",
+                    "&sup1": "\xb9",
+                    "&sup1;": "\xb9",
+                    "&sup2": "\xb2",
+                    "&sup2;": "\xb2",
+                    "&sup3": "\xb3",
+                    "&sup3;": "\xb3",
+                    "&sup;": "⊃",
+                    "&supE;": "⫆",
+                    "&supdot;": "⪾",
+                    "&supdsub;": "⫘",
+                    "&supe;": "⊇",
+                    "&supedot;": "⫄",
+                    "&suphsol;": "⟉",
+                    "&suphsub;": "⫗",
+                    "&suplarr;": "⥻",
+                    "&supmult;": "⫂",
+                    "&supnE;": "⫌",
+                    "&supne;": "⊋",
+                    "&supplus;": "⫀",
+                    "&supset;": "⊃",
+                    "&supseteq;": "⊇",
+                    "&supseteqq;": "⫆",
+                    "&supsetneq;": "⊋",
+                    "&supsetneqq;": "⫌",
+                    "&supsim;": "⫈",
+                    "&supsub;": "⫔",
+                    "&supsup;": "⫖",
+                    "&swArr;": "⇙",
+                    "&swarhk;": "⤦",
+                    "&swarr;": "↙",
+                    "&swarrow;": "↙",
+                    "&swnwar;": "⤪",
+                    "&szlig": "\xdf",
+                    "&szlig;": "\xdf",
+                    "&target;": "⌖",
+                    "&tau;": "τ",
+                    "&tbrk;": "⎴",
+                    "&tcaron;": "ť",
+                    "&tcedil;": "ţ",
+                    "&tcy;": "т",
+                    "&tdot;": "⃛",
+                    "&telrec;": "⌕",
+                    "&tfr;": "\uD835\uDD31",
+                    "&there4;": "∴",
+                    "&therefore;": "∴",
+                    "&theta;": "θ",
+                    "&thetasym;": "ϑ",
+                    "&thetav;": "ϑ",
+                    "&thickapprox;": "≈",
+                    "&thicksim;": "∼",
+                    "&thinsp;": " ",
+                    "&thkap;": "≈",
+                    "&thksim;": "∼",
+                    "&thorn": "\xfe",
+                    "&thorn;": "\xfe",
+                    "&tilde;": "˜",
+                    "&times": "\xd7",
+                    "&times;": "\xd7",
+                    "&timesb;": "⊠",
+                    "&timesbar;": "⨱",
+                    "&timesd;": "⨰",
+                    "&tint;": "∭",
+                    "&toea;": "⤨",
+                    "&top;": "⊤",
+                    "&topbot;": "⌶",
+                    "&topcir;": "⫱",
+                    "&topf;": "\uD835\uDD65",
+                    "&topfork;": "⫚",
+                    "&tosa;": "⤩",
+                    "&tprime;": "‴",
+                    "&trade;": "™",
+                    "&triangle;": "▵",
+                    "&triangledown;": "▿",
+                    "&triangleleft;": "◃",
+                    "&trianglelefteq;": "⊴",
+                    "&triangleq;": "≜",
+                    "&triangleright;": "▹",
+                    "&trianglerighteq;": "⊵",
+                    "&tridot;": "◬",
+                    "&trie;": "≜",
+                    "&triminus;": "⨺",
+                    "&triplus;": "⨹",
+                    "&trisb;": "⧍",
+                    "&tritime;": "⨻",
+                    "&trpezium;": "⏢",
+                    "&tscr;": "\uD835\uDCC9",
+                    "&tscy;": "ц",
+                    "&tshcy;": "ћ",
+                    "&tstrok;": "ŧ",
+                    "&twixt;": "≬",
+                    "&twoheadleftarrow;": "↞",
+                    "&twoheadrightarrow;": "↠",
+                    "&uArr;": "⇑",
+                    "&uHar;": "⥣",
+                    "&uacute": "\xfa",
+                    "&uacute;": "\xfa",
+                    "&uarr;": "↑",
+                    "&ubrcy;": "ў",
+                    "&ubreve;": "ŭ",
+                    "&ucirc": "\xfb",
+                    "&ucirc;": "\xfb",
+                    "&ucy;": "у",
+                    "&udarr;": "⇅",
+                    "&udblac;": "ű",
+                    "&udhar;": "⥮",
+                    "&ufisht;": "⥾",
+                    "&ufr;": "\uD835\uDD32",
+                    "&ugrave": "\xf9",
+                    "&ugrave;": "\xf9",
+                    "&uharl;": "↿",
+                    "&uharr;": "↾",
+                    "&uhblk;": "▀",
+                    "&ulcorn;": "⌜",
+                    "&ulcorner;": "⌜",
+                    "&ulcrop;": "⌏",
+                    "&ultri;": "◸",
+                    "&umacr;": "ū",
+                    "&uml": "\xa8",
+                    "&uml;": "\xa8",
+                    "&uogon;": "ų",
+                    "&uopf;": "\uD835\uDD66",
+                    "&uparrow;": "↑",
+                    "&updownarrow;": "↕",
+                    "&upharpoonleft;": "↿",
+                    "&upharpoonright;": "↾",
+                    "&uplus;": "⊎",
+                    "&upsi;": "υ",
+                    "&upsih;": "ϒ",
+                    "&upsilon;": "υ",
+                    "&upuparrows;": "⇈",
+                    "&urcorn;": "⌝",
+                    "&urcorner;": "⌝",
+                    "&urcrop;": "⌎",
+                    "&uring;": "ů",
+                    "&urtri;": "◹",
+                    "&uscr;": "\uD835\uDCCA",
+                    "&utdot;": "⋰",
+                    "&utilde;": "ũ",
+                    "&utri;": "▵",
+                    "&utrif;": "▴",
+                    "&uuarr;": "⇈",
+                    "&uuml": "\xfc",
+                    "&uuml;": "\xfc",
+                    "&uwangle;": "⦧",
+                    "&vArr;": "⇕",
+                    "&vBar;": "⫨",
+                    "&vBarv;": "⫩",
+                    "&vDash;": "⊨",
+                    "&vangrt;": "⦜",
+                    "&varepsilon;": "ϵ",
+                    "&varkappa;": "ϰ",
+                    "&varnothing;": "∅",
+                    "&varphi;": "ϕ",
+                    "&varpi;": "ϖ",
+                    "&varpropto;": "∝",
+                    "&varr;": "↕",
+                    "&varrho;": "ϱ",
+                    "&varsigma;": "ς",
+                    "&varsubsetneq;": "⊊︀",
+                    "&varsubsetneqq;": "⫋︀",
+                    "&varsupsetneq;": "⊋︀",
+                    "&varsupsetneqq;": "⫌︀",
+                    "&vartheta;": "ϑ",
+                    "&vartriangleleft;": "⊲",
+                    "&vartriangleright;": "⊳",
+                    "&vcy;": "в",
+                    "&vdash;": "⊢",
+                    "&vee;": "∨",
+                    "&veebar;": "⊻",
+                    "&veeeq;": "≚",
+                    "&vellip;": "⋮",
+                    "&verbar;": "|",
+                    "&vert;": "|",
+                    "&vfr;": "\uD835\uDD33",
+                    "&vltri;": "⊲",
+                    "&vnsub;": "⊂⃒",
+                    "&vnsup;": "⊃⃒",
+                    "&vopf;": "\uD835\uDD67",
+                    "&vprop;": "∝",
+                    "&vrtri;": "⊳",
+                    "&vscr;": "\uD835\uDCCB",
+                    "&vsubnE;": "⫋︀",
+                    "&vsubne;": "⊊︀",
+                    "&vsupnE;": "⫌︀",
+                    "&vsupne;": "⊋︀",
+                    "&vzigzag;": "⦚",
+                    "&wcirc;": "ŵ",
+                    "&wedbar;": "⩟",
+                    "&wedge;": "∧",
+                    "&wedgeq;": "≙",
+                    "&weierp;": "℘",
+                    "&wfr;": "\uD835\uDD34",
+                    "&wopf;": "\uD835\uDD68",
+                    "&wp;": "℘",
+                    "&wr;": "≀",
+                    "&wreath;": "≀",
+                    "&wscr;": "\uD835\uDCCC",
+                    "&xcap;": "⋂",
+                    "&xcirc;": "◯",
+                    "&xcup;": "⋃",
+                    "&xdtri;": "▽",
+                    "&xfr;": "\uD835\uDD35",
+                    "&xhArr;": "⟺",
+                    "&xharr;": "⟷",
+                    "&xi;": "ξ",
+                    "&xlArr;": "⟸",
+                    "&xlarr;": "⟵",
+                    "&xmap;": "⟼",
+                    "&xnis;": "⋻",
+                    "&xodot;": "⨀",
+                    "&xopf;": "\uD835\uDD69",
+                    "&xoplus;": "⨁",
+                    "&xotime;": "⨂",
+                    "&xrArr;": "⟹",
+                    "&xrarr;": "⟶",
+                    "&xscr;": "\uD835\uDCCD",
+                    "&xsqcup;": "⨆",
+                    "&xuplus;": "⨄",
+                    "&xutri;": "△",
+                    "&xvee;": "⋁",
+                    "&xwedge;": "⋀",
+                    "&yacute": "\xfd",
+                    "&yacute;": "\xfd",
+                    "&yacy;": "я",
+                    "&ycirc;": "ŷ",
+                    "&ycy;": "ы",
+                    "&yen": "\xa5",
+                    "&yen;": "\xa5",
+                    "&yfr;": "\uD835\uDD36",
+                    "&yicy;": "ї",
+                    "&yopf;": "\uD835\uDD6A",
+                    "&yscr;": "\uD835\uDCCE",
+                    "&yucy;": "ю",
+                    "&yuml": "\xff",
+                    "&yuml;": "\xff",
+                    "&zacute;": "ź",
+                    "&zcaron;": "ž",
+                    "&zcy;": "з",
+                    "&zdot;": "ż",
+                    "&zeetrf;": "ℨ",
+                    "&zeta;": "ζ",
+                    "&zfr;": "\uD835\uDD37",
+                    "&zhcy;": "ж",
+                    "&zigrarr;": "⇝",
+                    "&zopf;": "\uD835\uDD6B",
+                    "&zscr;": "\uD835\uDCCF",
+                    "&zwj;": "‍",
+                    "&zwnj;": "‌"
+                },
+                characters: {
+                    "\xc6": "&AElig;",
+                    "&": "&amp;",
+                    "\xc1": "&Aacute;",
+                    "Ă": "&Abreve;",
+                    "\xc2": "&Acirc;",
+                    "А": "&Acy;",
+                    "\uD835\uDD04": "&Afr;",
+                    "\xc0": "&Agrave;",
+                    "Α": "&Alpha;",
+                    "Ā": "&Amacr;",
+                    "⩓": "&And;",
+                    "Ą": "&Aogon;",
+                    "\uD835\uDD38": "&Aopf;",
+                    "⁡": "&af;",
+                    "\xc5": "&angst;",
+                    "\uD835\uDC9C": "&Ascr;",
+                    "≔": "&coloneq;",
+                    "\xc3": "&Atilde;",
+                    "\xc4": "&Auml;",
+                    "∖": "&ssetmn;",
+                    "⫧": "&Barv;",
+                    "⌆": "&doublebarwedge;",
+                    "Б": "&Bcy;",
+                    "∵": "&because;",
+                    "ℬ": "&bernou;",
+                    "Β": "&Beta;",
+                    "\uD835\uDD05": "&Bfr;",
+                    "\uD835\uDD39": "&Bopf;",
+                    "˘": "&breve;",
+                    "≎": "&bump;",
+                    "Ч": "&CHcy;",
+                    "\xa9": "&copy;",
+                    "Ć": "&Cacute;",
+                    "⋒": "&Cap;",
+                    "ⅅ": "&DD;",
+                    "ℭ": "&Cfr;",
+                    "Č": "&Ccaron;",
+                    "\xc7": "&Ccedil;",
+                    "Ĉ": "&Ccirc;",
+                    "∰": "&Cconint;",
+                    "Ċ": "&Cdot;",
+                    "\xb8": "&cedil;",
+                    "\xb7": "&middot;",
+                    "Χ": "&Chi;",
+                    "⊙": "&odot;",
+                    "⊖": "&ominus;",
+                    "⊕": "&oplus;",
+                    "⊗": "&otimes;",
+                    "∲": "&cwconint;",
+                    "”": "&rdquor;",
+                    "’": "&rsquor;",
+                    "∷": "&Proportion;",
+                    "⩴": "&Colone;",
+                    "≡": "&equiv;",
+                    "∯": "&DoubleContourIntegral;",
+                    "∮": "&oint;",
+                    "ℂ": "&complexes;",
+                    "∐": "&coprod;",
+                    "∳": "&awconint;",
+                    "⨯": "&Cross;",
+                    "\uD835\uDC9E": "&Cscr;",
+                    "⋓": "&Cup;",
+                    "≍": "&asympeq;",
+                    "⤑": "&DDotrahd;",
+                    "Ђ": "&DJcy;",
+                    "Ѕ": "&DScy;",
+                    "Џ": "&DZcy;",
+                    "‡": "&ddagger;",
+                    "↡": "&Darr;",
+                    "⫤": "&DoubleLeftTee;",
+                    "Ď": "&Dcaron;",
+                    "Д": "&Dcy;",
+                    "∇": "&nabla;",
+                    "Δ": "&Delta;",
+                    "\uD835\uDD07": "&Dfr;",
+                    "\xb4": "&acute;",
+                    "˙": "&dot;",
+                    "˝": "&dblac;",
+                    "`": "&grave;",
+                    "˜": "&tilde;",
+                    "⋄": "&diamond;",
+                    "ⅆ": "&dd;",
+                    "\uD835\uDD3B": "&Dopf;",
+                    "\xa8": "&uml;",
+                    "⃜": "&DotDot;",
+                    "≐": "&esdot;",
+                    "⇓": "&dArr;",
+                    "⇐": "&lArr;",
+                    "⇔": "&iff;",
+                    "⟸": "&xlArr;",
+                    "⟺": "&xhArr;",
+                    "⟹": "&xrArr;",
+                    "⇒": "&rArr;",
+                    "⊨": "&vDash;",
+                    "⇑": "&uArr;",
+                    "⇕": "&vArr;",
+                    "∥": "&spar;",
+                    "↓": "&downarrow;",
+                    "⤓": "&DownArrowBar;",
+                    "⇵": "&duarr;",
+                    "̑": "&DownBreve;",
+                    "⥐": "&DownLeftRightVector;",
+                    "⥞": "&DownLeftTeeVector;",
+                    "↽": "&lhard;",
+                    "⥖": "&DownLeftVectorBar;",
+                    "⥟": "&DownRightTeeVector;",
+                    "⇁": "&rightharpoondown;",
+                    "⥗": "&DownRightVectorBar;",
+                    "⊤": "&top;",
+                    "↧": "&mapstodown;",
+                    "\uD835\uDC9F": "&Dscr;",
+                    "Đ": "&Dstrok;",
+                    "Ŋ": "&ENG;",
+                    "\xd0": "&ETH;",
+                    "\xc9": "&Eacute;",
+                    "Ě": "&Ecaron;",
+                    "\xca": "&Ecirc;",
+                    "Э": "&Ecy;",
+                    "Ė": "&Edot;",
+                    "\uD835\uDD08": "&Efr;",
+                    "\xc8": "&Egrave;",
+                    "∈": "&isinv;",
+                    "Ē": "&Emacr;",
+                    "◻": "&EmptySmallSquare;",
+                    "▫": "&EmptyVerySmallSquare;",
+                    "Ę": "&Eogon;",
+                    "\uD835\uDD3C": "&Eopf;",
+                    "Ε": "&Epsilon;",
+                    "⩵": "&Equal;",
+                    "≂": "&esim;",
+                    "⇌": "&rlhar;",
+                    "ℰ": "&expectation;",
+                    "⩳": "&Esim;",
+                    "Η": "&Eta;",
+                    "\xcb": "&Euml;",
+                    "∃": "&exist;",
+                    "ⅇ": "&exponentiale;",
+                    "Ф": "&Fcy;",
+                    "\uD835\uDD09": "&Ffr;",
+                    "◼": "&FilledSmallSquare;",
+                    "▪": "&squf;",
+                    "\uD835\uDD3D": "&Fopf;",
+                    "∀": "&forall;",
+                    "ℱ": "&Fscr;",
+                    "Ѓ": "&GJcy;",
+                    ">": "&gt;",
+                    "Γ": "&Gamma;",
+                    "Ϝ": "&Gammad;",
+                    "Ğ": "&Gbreve;",
+                    "Ģ": "&Gcedil;",
+                    "Ĝ": "&Gcirc;",
+                    "Г": "&Gcy;",
+                    "Ġ": "&Gdot;",
+                    "\uD835\uDD0A": "&Gfr;",
+                    "⋙": "&ggg;",
+                    "\uD835\uDD3E": "&Gopf;",
+                    "≥": "&geq;",
+                    "⋛": "&gtreqless;",
+                    "≧": "&geqq;",
+                    "⪢": "&GreaterGreater;",
+                    "≷": "&gtrless;",
+                    "⩾": "&ges;",
+                    "≳": "&gtrsim;",
+                    "\uD835\uDCA2": "&Gscr;",
+                    "≫": "&gg;",
+                    "Ъ": "&HARDcy;",
+                    "ˇ": "&caron;",
+                    "^": "&Hat;",
+                    "Ĥ": "&Hcirc;",
+                    "ℌ": "&Poincareplane;",
+                    "ℋ": "&hamilt;",
+                    "ℍ": "&quaternions;",
+                    "─": "&boxh;",
+                    "Ħ": "&Hstrok;",
+                    "≏": "&bumpeq;",
+                    "Е": "&IEcy;",
+                    "Ĳ": "&IJlig;",
+                    "Ё": "&IOcy;",
+                    "\xcd": "&Iacute;",
+                    "\xce": "&Icirc;",
+                    "И": "&Icy;",
+                    "İ": "&Idot;",
+                    "ℑ": "&imagpart;",
+                    "\xcc": "&Igrave;",
+                    "Ī": "&Imacr;",
+                    "ⅈ": "&ii;",
+                    "∬": "&Int;",
+                    "∫": "&int;",
+                    "⋂": "&xcap;",
+                    "⁣": "&ic;",
+                    "⁢": "&it;",
+                    "Į": "&Iogon;",
+                    "\uD835\uDD40": "&Iopf;",
+                    "Ι": "&Iota;",
+                    "ℐ": "&imagline;",
+                    "Ĩ": "&Itilde;",
+                    "І": "&Iukcy;",
+                    "\xcf": "&Iuml;",
+                    "Ĵ": "&Jcirc;",
+                    "Й": "&Jcy;",
+                    "\uD835\uDD0D": "&Jfr;",
+                    "\uD835\uDD41": "&Jopf;",
+                    "\uD835\uDCA5": "&Jscr;",
+                    "Ј": "&Jsercy;",
+                    "Є": "&Jukcy;",
+                    "Х": "&KHcy;",
+                    "Ќ": "&KJcy;",
+                    "Κ": "&Kappa;",
+                    "Ķ": "&Kcedil;",
+                    "К": "&Kcy;",
+                    "\uD835\uDD0E": "&Kfr;",
+                    "\uD835\uDD42": "&Kopf;",
+                    "\uD835\uDCA6": "&Kscr;",
+                    "Љ": "&LJcy;",
+                    "<": "&lt;",
+                    "Ĺ": "&Lacute;",
+                    "Λ": "&Lambda;",
+                    "⟪": "&Lang;",
+                    "ℒ": "&lagran;",
+                    "↞": "&twoheadleftarrow;",
+                    "Ľ": "&Lcaron;",
+                    "Ļ": "&Lcedil;",
+                    "Л": "&Lcy;",
+                    "⟨": "&langle;",
+                    "←": "&slarr;",
+                    "⇤": "&larrb;",
+                    "⇆": "&lrarr;",
+                    "⌈": "&lceil;",
+                    "⟦": "&lobrk;",
+                    "⥡": "&LeftDownTeeVector;",
+                    "⇃": "&downharpoonleft;",
+                    "⥙": "&LeftDownVectorBar;",
+                    "⌊": "&lfloor;",
+                    "↔": "&leftrightarrow;",
+                    "⥎": "&LeftRightVector;",
+                    "⊣": "&dashv;",
+                    "↤": "&mapstoleft;",
+                    "⥚": "&LeftTeeVector;",
+                    "⊲": "&vltri;",
+                    "⧏": "&LeftTriangleBar;",
+                    "⊴": "&trianglelefteq;",
+                    "⥑": "&LeftUpDownVector;",
+                    "⥠": "&LeftUpTeeVector;",
+                    "↿": "&upharpoonleft;",
+                    "⥘": "&LeftUpVectorBar;",
+                    "↼": "&lharu;",
+                    "⥒": "&LeftVectorBar;",
+                    "⋚": "&lesseqgtr;",
+                    "≦": "&leqq;",
+                    "≶": "&lg;",
+                    "⪡": "&LessLess;",
+                    "⩽": "&les;",
+                    "≲": "&lsim;",
+                    "\uD835\uDD0F": "&Lfr;",
+                    "⋘": "&Ll;",
+                    "⇚": "&lAarr;",
+                    "Ŀ": "&Lmidot;",
+                    "⟵": "&xlarr;",
+                    "⟷": "&xharr;",
+                    "⟶": "&xrarr;",
+                    "\uD835\uDD43": "&Lopf;",
+                    "↙": "&swarrow;",
+                    "↘": "&searrow;",
+                    "↰": "&lsh;",
+                    "Ł": "&Lstrok;",
+                    "≪": "&ll;",
+                    "⤅": "&Map;",
+                    "М": "&Mcy;",
+                    " ": "&MediumSpace;",
+                    "ℳ": "&phmmat;",
+                    "\uD835\uDD10": "&Mfr;",
+                    "∓": "&mp;",
+                    "\uD835\uDD44": "&Mopf;",
+                    "Μ": "&Mu;",
+                    "Њ": "&NJcy;",
+                    "Ń": "&Nacute;",
+                    "Ň": "&Ncaron;",
+                    "Ņ": "&Ncedil;",
+                    "Н": "&Ncy;",
+                    "​": "&ZeroWidthSpace;",
+                    "\n": "&NewLine;",
+                    "\uD835\uDD11": "&Nfr;",
+                    "⁠": "&NoBreak;",
+                    "\xa0": "&nbsp;",
+                    "ℕ": "&naturals;",
+                    "⫬": "&Not;",
+                    "≢": "&nequiv;",
+                    "≭": "&NotCupCap;",
+                    "∦": "&nspar;",
+                    "∉": "&notinva;",
+                    "≠": "&ne;",
+                    "≂̸": "&nesim;",
+                    "∄": "&nexists;",
+                    "≯": "&ngtr;",
+                    "≱": "&ngeq;",
+                    "≧̸": "&ngeqq;",
+                    "≫̸": "&nGtv;",
+                    "≹": "&ntgl;",
+                    "⩾̸": "&nges;",
+                    "≵": "&ngsim;",
+                    "≎̸": "&nbump;",
+                    "≏̸": "&nbumpe;",
+                    "⋪": "&ntriangleleft;",
+                    "⧏̸": "&NotLeftTriangleBar;",
+                    "⋬": "&ntrianglelefteq;",
+                    "≮": "&nlt;",
+                    "≰": "&nleq;",
+                    "≸": "&ntlg;",
+                    "≪̸": "&nLtv;",
+                    "⩽̸": "&nles;",
+                    "≴": "&nlsim;",
+                    "⪢̸": "&NotNestedGreaterGreater;",
+                    "⪡̸": "&NotNestedLessLess;",
+                    "⊀": "&nprec;",
+                    "⪯̸": "&npreceq;",
+                    "⋠": "&nprcue;",
+                    "∌": "&notniva;",
+                    "⋫": "&ntriangleright;",
+                    "⧐̸": "&NotRightTriangleBar;",
+                    "⋭": "&ntrianglerighteq;",
+                    "⊏̸": "&NotSquareSubset;",
+                    "⋢": "&nsqsube;",
+                    "⊐̸": "&NotSquareSuperset;",
+                    "⋣": "&nsqsupe;",
+                    "⊂⃒": "&vnsub;",
+                    "⊈": "&nsubseteq;",
+                    "⊁": "&nsucc;",
+                    "⪰̸": "&nsucceq;",
+                    "⋡": "&nsccue;",
+                    "≿̸": "&NotSucceedsTilde;",
+                    "⊃⃒": "&vnsup;",
+                    "⊉": "&nsupseteq;",
+                    "≁": "&nsim;",
+                    "≄": "&nsimeq;",
+                    "≇": "&ncong;",
+                    "≉": "&napprox;",
+                    "∤": "&nsmid;",
+                    "\uD835\uDCA9": "&Nscr;",
+                    "\xd1": "&Ntilde;",
+                    "Ν": "&Nu;",
+                    "Œ": "&OElig;",
+                    "\xd3": "&Oacute;",
+                    "\xd4": "&Ocirc;",
+                    "О": "&Ocy;",
+                    "Ő": "&Odblac;",
+                    "\uD835\uDD12": "&Ofr;",
+                    "\xd2": "&Ograve;",
+                    "Ō": "&Omacr;",
+                    "Ω": "&ohm;",
+                    "Ο": "&Omicron;",
+                    "\uD835\uDD46": "&Oopf;",
+                    "“": "&ldquo;",
+                    "‘": "&lsquo;",
+                    "⩔": "&Or;",
+                    "\uD835\uDCAA": "&Oscr;",
+                    "\xd8": "&Oslash;",
+                    "\xd5": "&Otilde;",
+                    "⨷": "&Otimes;",
+                    "\xd6": "&Ouml;",
+                    "‾": "&oline;",
+                    "⏞": "&OverBrace;",
+                    "⎴": "&tbrk;",
+                    "⏜": "&OverParenthesis;",
+                    "∂": "&part;",
+                    "П": "&Pcy;",
+                    "\uD835\uDD13": "&Pfr;",
+                    "Φ": "&Phi;",
+                    "Π": "&Pi;",
+                    "\xb1": "&pm;",
+                    "ℙ": "&primes;",
+                    "⪻": "&Pr;",
+                    "≺": "&prec;",
+                    "⪯": "&preceq;",
+                    "≼": "&preccurlyeq;",
+                    "≾": "&prsim;",
+                    "″": "&Prime;",
+                    "∏": "&prod;",
+                    "∝": "&vprop;",
+                    "\uD835\uDCAB": "&Pscr;",
+                    "Ψ": "&Psi;",
+                    '"': "&quot;",
+                    "\uD835\uDD14": "&Qfr;",
+                    "ℚ": "&rationals;",
+                    "\uD835\uDCAC": "&Qscr;",
+                    "⤐": "&drbkarow;",
+                    "\xae": "&reg;",
+                    "Ŕ": "&Racute;",
+                    "⟫": "&Rang;",
+                    "↠": "&twoheadrightarrow;",
+                    "⤖": "&Rarrtl;",
+                    "Ř": "&Rcaron;",
+                    "Ŗ": "&Rcedil;",
+                    "Р": "&Rcy;",
+                    "ℜ": "&realpart;",
+                    "∋": "&niv;",
+                    "⇋": "&lrhar;",
+                    "⥯": "&duhar;",
+                    "Ρ": "&Rho;",
+                    "⟩": "&rangle;",
+                    "→": "&srarr;",
+                    "⇥": "&rarrb;",
+                    "⇄": "&rlarr;",
+                    "⌉": "&rceil;",
+                    "⟧": "&robrk;",
+                    "⥝": "&RightDownTeeVector;",
+                    "⇂": "&downharpoonright;",
+                    "⥕": "&RightDownVectorBar;",
+                    "⌋": "&rfloor;",
+                    "⊢": "&vdash;",
+                    "↦": "&mapsto;",
+                    "⥛": "&RightTeeVector;",
+                    "⊳": "&vrtri;",
+                    "⧐": "&RightTriangleBar;",
+                    "⊵": "&trianglerighteq;",
+                    "⥏": "&RightUpDownVector;",
+                    "⥜": "&RightUpTeeVector;",
+                    "↾": "&upharpoonright;",
+                    "⥔": "&RightUpVectorBar;",
+                    "⇀": "&rightharpoonup;",
+                    "⥓": "&RightVectorBar;",
+                    "ℝ": "&reals;",
+                    "⥰": "&RoundImplies;",
+                    "⇛": "&rAarr;",
+                    "ℛ": "&realine;",
+                    "↱": "&rsh;",
+                    "⧴": "&RuleDelayed;",
+                    "Щ": "&SHCHcy;",
+                    "Ш": "&SHcy;",
+                    "Ь": "&SOFTcy;",
+                    "Ś": "&Sacute;",
+                    "⪼": "&Sc;",
+                    "Š": "&Scaron;",
+                    "Ş": "&Scedil;",
+                    "Ŝ": "&Scirc;",
+                    "С": "&Scy;",
+                    "\uD835\uDD16": "&Sfr;",
+                    "↑": "&uparrow;",
+                    "Σ": "&Sigma;",
+                    "∘": "&compfn;",
+                    "\uD835\uDD4A": "&Sopf;",
+                    "√": "&radic;",
+                    "□": "&square;",
+                    "⊓": "&sqcap;",
+                    "⊏": "&sqsubset;",
+                    "⊑": "&sqsubseteq;",
+                    "⊐": "&sqsupset;",
+                    "⊒": "&sqsupseteq;",
+                    "⊔": "&sqcup;",
+                    "\uD835\uDCAE": "&Sscr;",
+                    "⋆": "&sstarf;",
+                    "⋐": "&Subset;",
+                    "⊆": "&subseteq;",
+                    "≻": "&succ;",
+                    "⪰": "&succeq;",
+                    "≽": "&succcurlyeq;",
+                    "≿": "&succsim;",
+                    "∑": "&sum;",
+                    "⋑": "&Supset;",
+                    "⊃": "&supset;",
+                    "⊇": "&supseteq;",
+                    "\xde": "&THORN;",
+                    "™": "&trade;",
+                    "Ћ": "&TSHcy;",
+                    "Ц": "&TScy;",
+                    "	": "&Tab;",
+                    "Τ": "&Tau;",
+                    "Ť": "&Tcaron;",
+                    "Ţ": "&Tcedil;",
+                    "Т": "&Tcy;",
+                    "\uD835\uDD17": "&Tfr;",
+                    "∴": "&therefore;",
+                    "Θ": "&Theta;",
+                    "  ": "&ThickSpace;",
+                    " ": "&thinsp;",
+                    "∼": "&thksim;",
+                    "≃": "&simeq;",
+                    "≅": "&cong;",
+                    "≈": "&thkap;",
+                    "\uD835\uDD4B": "&Topf;",
+                    "⃛": "&tdot;",
+                    "\uD835\uDCAF": "&Tscr;",
+                    "Ŧ": "&Tstrok;",
+                    "\xda": "&Uacute;",
+                    "↟": "&Uarr;",
+                    "⥉": "&Uarrocir;",
+                    "Ў": "&Ubrcy;",
+                    "Ŭ": "&Ubreve;",
+                    "\xdb": "&Ucirc;",
+                    "У": "&Ucy;",
+                    "Ű": "&Udblac;",
+                    "\uD835\uDD18": "&Ufr;",
+                    "\xd9": "&Ugrave;",
+                    "Ū": "&Umacr;",
+                    _: "&lowbar;",
+                    "⏟": "&UnderBrace;",
+                    "⎵": "&bbrk;",
+                    "⏝": "&UnderParenthesis;",
+                    "⋃": "&xcup;",
+                    "⊎": "&uplus;",
+                    "Ų": "&Uogon;",
+                    "\uD835\uDD4C": "&Uopf;",
+                    "⤒": "&UpArrowBar;",
+                    "⇅": "&udarr;",
+                    "↕": "&varr;",
+                    "⥮": "&udhar;",
+                    "⊥": "&perp;",
+                    "↥": "&mapstoup;",
+                    "↖": "&nwarrow;",
+                    "↗": "&nearrow;",
+                    "ϒ": "&upsih;",
+                    "Υ": "&Upsilon;",
+                    "Ů": "&Uring;",
+                    "\uD835\uDCB0": "&Uscr;",
+                    "Ũ": "&Utilde;",
+                    "\xdc": "&Uuml;",
+                    "⊫": "&VDash;",
+                    "⫫": "&Vbar;",
+                    "В": "&Vcy;",
+                    "⊩": "&Vdash;",
+                    "⫦": "&Vdashl;",
+                    "⋁": "&xvee;",
+                    "‖": "&Vert;",
+                    "∣": "&smid;",
+                    "|": "&vert;",
+                    "❘": "&VerticalSeparator;",
+                    "≀": "&wreath;",
+                    " ": "&hairsp;",
+                    "\uD835\uDD19": "&Vfr;",
+                    "\uD835\uDD4D": "&Vopf;",
+                    "\uD835\uDCB1": "&Vscr;",
+                    "⊪": "&Vvdash;",
+                    "Ŵ": "&Wcirc;",
+                    "⋀": "&xwedge;",
+                    "\uD835\uDD1A": "&Wfr;",
+                    "\uD835\uDD4E": "&Wopf;",
+                    "\uD835\uDCB2": "&Wscr;",
+                    "\uD835\uDD1B": "&Xfr;",
+                    "Ξ": "&Xi;",
+                    "\uD835\uDD4F": "&Xopf;",
+                    "\uD835\uDCB3": "&Xscr;",
+                    "Я": "&YAcy;",
+                    "Ї": "&YIcy;",
+                    "Ю": "&YUcy;",
+                    "\xdd": "&Yacute;",
+                    "Ŷ": "&Ycirc;",
+                    "Ы": "&Ycy;",
+                    "\uD835\uDD1C": "&Yfr;",
+                    "\uD835\uDD50": "&Yopf;",
+                    "\uD835\uDCB4": "&Yscr;",
+                    "Ÿ": "&Yuml;",
+                    "Ж": "&ZHcy;",
+                    "Ź": "&Zacute;",
+                    "Ž": "&Zcaron;",
+                    "З": "&Zcy;",
+                    "Ż": "&Zdot;",
+                    "Ζ": "&Zeta;",
+                    "ℨ": "&zeetrf;",
+                    "ℤ": "&integers;",
+                    "\uD835\uDCB5": "&Zscr;",
+                    "\xe1": "&aacute;",
+                    "ă": "&abreve;",
+                    "∾": "&mstpos;",
+                    "∾̳": "&acE;",
+                    "∿": "&acd;",
+                    "\xe2": "&acirc;",
+                    "а": "&acy;",
+                    "\xe6": "&aelig;",
+                    "\uD835\uDD1E": "&afr;",
+                    "\xe0": "&agrave;",
+                    "ℵ": "&aleph;",
+                    "α": "&alpha;",
+                    "ā": "&amacr;",
+                    "⨿": "&amalg;",
+                    "∧": "&wedge;",
+                    "⩕": "&andand;",
+                    "⩜": "&andd;",
+                    "⩘": "&andslope;",
+                    "⩚": "&andv;",
+                    "∠": "&angle;",
+                    "⦤": "&ange;",
+                    "∡": "&measuredangle;",
+                    "⦨": "&angmsdaa;",
+                    "⦩": "&angmsdab;",
+                    "⦪": "&angmsdac;",
+                    "⦫": "&angmsdad;",
+                    "⦬": "&angmsdae;",
+                    "⦭": "&angmsdaf;",
+                    "⦮": "&angmsdag;",
+                    "⦯": "&angmsdah;",
+                    "∟": "&angrt;",
+                    "⊾": "&angrtvb;",
+                    "⦝": "&angrtvbd;",
+                    "∢": "&angsph;",
+                    "⍼": "&angzarr;",
+                    "ą": "&aogon;",
+                    "\uD835\uDD52": "&aopf;",
+                    "⩰": "&apE;",
+                    "⩯": "&apacir;",
+                    "≊": "&approxeq;",
+                    "≋": "&apid;",
+                    "'": "&apos;",
+                    "\xe5": "&aring;",
+                    "\uD835\uDCB6": "&ascr;",
+                    "*": "&midast;",
+                    "\xe3": "&atilde;",
+                    "\xe4": "&auml;",
+                    "⨑": "&awint;",
+                    "⫭": "&bNot;",
+                    "≌": "&bcong;",
+                    "϶": "&bepsi;",
+                    "‵": "&bprime;",
+                    "∽": "&bsim;",
+                    "⋍": "&bsime;",
+                    "⊽": "&barvee;",
+                    "⌅": "&barwedge;",
+                    "⎶": "&bbrktbrk;",
+                    "б": "&bcy;",
+                    "„": "&ldquor;",
+                    "⦰": "&bemptyv;",
+                    "β": "&beta;",
+                    "ℶ": "&beth;",
+                    "≬": "&twixt;",
+                    "\uD835\uDD1F": "&bfr;",
+                    "◯": "&xcirc;",
+                    "⨀": "&xodot;",
+                    "⨁": "&xoplus;",
+                    "⨂": "&xotime;",
+                    "⨆": "&xsqcup;",
+                    "★": "&starf;",
+                    "▽": "&xdtri;",
+                    "△": "&xutri;",
+                    "⨄": "&xuplus;",
+                    "⤍": "&rbarr;",
+                    "⧫": "&lozf;",
+                    "▴": "&utrif;",
+                    "▾": "&dtrif;",
+                    "◂": "&ltrif;",
+                    "▸": "&rtrif;",
+                    "␣": "&blank;",
+                    "▒": "&blk12;",
+                    "░": "&blk14;",
+                    "▓": "&blk34;",
+                    "█": "&block;",
+                    "=⃥": "&bne;",
+                    "≡⃥": "&bnequiv;",
+                    "⌐": "&bnot;",
+                    "\uD835\uDD53": "&bopf;",
+                    "⋈": "&bowtie;",
+                    "╗": "&boxDL;",
+                    "╔": "&boxDR;",
+                    "╖": "&boxDl;",
+                    "╓": "&boxDr;",
+                    "═": "&boxH;",
+                    "╦": "&boxHD;",
+                    "╩": "&boxHU;",
+                    "╤": "&boxHd;",
+                    "╧": "&boxHu;",
+                    "╝": "&boxUL;",
+                    "╚": "&boxUR;",
+                    "╜": "&boxUl;",
+                    "╙": "&boxUr;",
+                    "║": "&boxV;",
+                    "╬": "&boxVH;",
+                    "╣": "&boxVL;",
+                    "╠": "&boxVR;",
+                    "╫": "&boxVh;",
+                    "╢": "&boxVl;",
+                    "╟": "&boxVr;",
+                    "⧉": "&boxbox;",
+                    "╕": "&boxdL;",
+                    "╒": "&boxdR;",
+                    "┐": "&boxdl;",
+                    "┌": "&boxdr;",
+                    "╥": "&boxhD;",
+                    "╨": "&boxhU;",
+                    "┬": "&boxhd;",
+                    "┴": "&boxhu;",
+                    "⊟": "&minusb;",
+                    "⊞": "&plusb;",
+                    "⊠": "&timesb;",
+                    "╛": "&boxuL;",
+                    "╘": "&boxuR;",
+                    "┘": "&boxul;",
+                    "└": "&boxur;",
+                    "│": "&boxv;",
+                    "╪": "&boxvH;",
+                    "╡": "&boxvL;",
+                    "╞": "&boxvR;",
+                    "┼": "&boxvh;",
+                    "┤": "&boxvl;",
+                    "├": "&boxvr;",
+                    "\xa6": "&brvbar;",
+                    "\uD835\uDCB7": "&bscr;",
+                    "⁏": "&bsemi;",
+                    "\\": "&bsol;",
+                    "⧅": "&bsolb;",
+                    "⟈": "&bsolhsub;",
+                    "•": "&bullet;",
+                    "⪮": "&bumpE;",
+                    "ć": "&cacute;",
+                    "∩": "&cap;",
+                    "⩄": "&capand;",
+                    "⩉": "&capbrcup;",
+                    "⩋": "&capcap;",
+                    "⩇": "&capcup;",
+                    "⩀": "&capdot;",
+                    "∩︀": "&caps;",
+                    "⁁": "&caret;",
+                    "⩍": "&ccaps;",
+                    "č": "&ccaron;",
+                    "\xe7": "&ccedil;",
+                    "ĉ": "&ccirc;",
+                    "⩌": "&ccups;",
+                    "⩐": "&ccupssm;",
+                    "ċ": "&cdot;",
+                    "⦲": "&cemptyv;",
+                    "\xa2": "&cent;",
+                    "\uD835\uDD20": "&cfr;",
+                    "ч": "&chcy;",
+                    "✓": "&checkmark;",
+                    "χ": "&chi;",
+                    "○": "&cir;",
+                    "⧃": "&cirE;",
+                    "ˆ": "&circ;",
+                    "≗": "&cire;",
+                    "↺": "&olarr;",
+                    "↻": "&orarr;",
+                    "Ⓢ": "&oS;",
+                    "⊛": "&oast;",
+                    "⊚": "&ocir;",
+                    "⊝": "&odash;",
+                    "⨐": "&cirfnint;",
+                    "⫯": "&cirmid;",
+                    "⧂": "&cirscir;",
+                    "♣": "&clubsuit;",
+                    ":": "&colon;",
+                    ",": "&comma;",
+                    "@": "&commat;",
+                    "∁": "&complement;",
+                    "⩭": "&congdot;",
+                    "\uD835\uDD54": "&copf;",
+                    "℗": "&copysr;",
+                    "↵": "&crarr;",
+                    "✗": "&cross;",
+                    "\uD835\uDCB8": "&cscr;",
+                    "⫏": "&csub;",
+                    "⫑": "&csube;",
+                    "⫐": "&csup;",
+                    "⫒": "&csupe;",
+                    "⋯": "&ctdot;",
+                    "⤸": "&cudarrl;",
+                    "⤵": "&cudarrr;",
+                    "⋞": "&curlyeqprec;",
+                    "⋟": "&curlyeqsucc;",
+                    "↶": "&curvearrowleft;",
+                    "⤽": "&cularrp;",
+                    "∪": "&cup;",
+                    "⩈": "&cupbrcap;",
+                    "⩆": "&cupcap;",
+                    "⩊": "&cupcup;",
+                    "⊍": "&cupdot;",
+                    "⩅": "&cupor;",
+                    "∪︀": "&cups;",
+                    "↷": "&curvearrowright;",
+                    "⤼": "&curarrm;",
+                    "⋎": "&cuvee;",
+                    "⋏": "&cuwed;",
+                    "\xa4": "&curren;",
+                    "∱": "&cwint;",
+                    "⌭": "&cylcty;",
+                    "⥥": "&dHar;",
+                    "†": "&dagger;",
+                    "ℸ": "&daleth;",
+                    "‐": "&hyphen;",
+                    "⤏": "&rBarr;",
+                    "ď": "&dcaron;",
+                    "д": "&dcy;",
+                    "⇊": "&downdownarrows;",
+                    "⩷": "&eDDot;",
+                    "\xb0": "&deg;",
+                    "δ": "&delta;",
+                    "⦱": "&demptyv;",
+                    "⥿": "&dfisht;",
+                    "\uD835\uDD21": "&dfr;",
+                    "♦": "&diams;",
+                    "ϝ": "&gammad;",
+                    "⋲": "&disin;",
+                    "\xf7": "&divide;",
+                    "⋇": "&divonx;",
+                    "ђ": "&djcy;",
+                    "⌞": "&llcorner;",
+                    "⌍": "&dlcrop;",
+                    $: "&dollar;",
+                    "\uD835\uDD55": "&dopf;",
+                    "≑": "&eDot;",
+                    "∸": "&minusd;",
+                    "∔": "&plusdo;",
+                    "⊡": "&sdotb;",
+                    "⌟": "&lrcorner;",
+                    "⌌": "&drcrop;",
+                    "\uD835\uDCB9": "&dscr;",
+                    "ѕ": "&dscy;",
+                    "⧶": "&dsol;",
+                    "đ": "&dstrok;",
+                    "⋱": "&dtdot;",
+                    "▿": "&triangledown;",
+                    "⦦": "&dwangle;",
+                    "џ": "&dzcy;",
+                    "⟿": "&dzigrarr;",
+                    "\xe9": "&eacute;",
+                    "⩮": "&easter;",
+                    "ě": "&ecaron;",
+                    "≖": "&eqcirc;",
+                    "\xea": "&ecirc;",
+                    "≕": "&eqcolon;",
+                    "э": "&ecy;",
+                    "ė": "&edot;",
+                    "≒": "&fallingdotseq;",
+                    "\uD835\uDD22": "&efr;",
+                    "⪚": "&eg;",
+                    "\xe8": "&egrave;",
+                    "⪖": "&eqslantgtr;",
+                    "⪘": "&egsdot;",
+                    "⪙": "&el;",
+                    "⏧": "&elinters;",
+                    "ℓ": "&ell;",
+                    "⪕": "&eqslantless;",
+                    "⪗": "&elsdot;",
+                    "ē": "&emacr;",
+                    "∅": "&varnothing;",
+                    " ": "&emsp13;",
+                    " ": "&emsp14;",
+                    " ": "&emsp;",
+                    "ŋ": "&eng;",
+                    " ": "&ensp;",
+                    "ę": "&eogon;",
+                    "\uD835\uDD56": "&eopf;",
+                    "⋕": "&epar;",
+                    "⧣": "&eparsl;",
+                    "⩱": "&eplus;",
+                    "ε": "&epsilon;",
+                    "ϵ": "&varepsilon;",
+                    "=": "&equals;",
+                    "≟": "&questeq;",
+                    "⩸": "&equivDD;",
+                    "⧥": "&eqvparsl;",
+                    "≓": "&risingdotseq;",
+                    "⥱": "&erarr;",
+                    "ℯ": "&escr;",
+                    "η": "&eta;",
+                    "\xf0": "&eth;",
+                    "\xeb": "&euml;",
+                    "€": "&euro;",
+                    "!": "&excl;",
+                    "ф": "&fcy;",
+                    "♀": "&female;",
+                    "ﬃ": "&ffilig;",
+                    "ﬀ": "&fflig;",
+                    "ﬄ": "&ffllig;",
+                    "\uD835\uDD23": "&ffr;",
+                    "ﬁ": "&filig;",
+                    fj: "&fjlig;",
+                    "♭": "&flat;",
+                    "ﬂ": "&fllig;",
+                    "▱": "&fltns;",
+                    "ƒ": "&fnof;",
+                    "\uD835\uDD57": "&fopf;",
+                    "⋔": "&pitchfork;",
+                    "⫙": "&forkv;",
+                    "⨍": "&fpartint;",
+                    "\xbd": "&half;",
+                    "⅓": "&frac13;",
+                    "\xbc": "&frac14;",
+                    "⅕": "&frac15;",
+                    "⅙": "&frac16;",
+                    "⅛": "&frac18;",
+                    "⅔": "&frac23;",
+                    "⅖": "&frac25;",
+                    "\xbe": "&frac34;",
+                    "⅗": "&frac35;",
+                    "⅜": "&frac38;",
+                    "⅘": "&frac45;",
+                    "⅚": "&frac56;",
+                    "⅝": "&frac58;",
+                    "⅞": "&frac78;",
+                    "⁄": "&frasl;",
+                    "⌢": "&sfrown;",
+                    "\uD835\uDCBB": "&fscr;",
+                    "⪌": "&gtreqqless;",
+                    "ǵ": "&gacute;",
+                    "γ": "&gamma;",
+                    "⪆": "&gtrapprox;",
+                    "ğ": "&gbreve;",
+                    "ĝ": "&gcirc;",
+                    "г": "&gcy;",
+                    "ġ": "&gdot;",
+                    "⪩": "&gescc;",
+                    "⪀": "&gesdot;",
+                    "⪂": "&gesdoto;",
+                    "⪄": "&gesdotol;",
+                    "⋛︀": "&gesl;",
+                    "⪔": "&gesles;",
+                    "\uD835\uDD24": "&gfr;",
+                    "ℷ": "&gimel;",
+                    "ѓ": "&gjcy;",
+                    "⪒": "&glE;",
+                    "⪥": "&gla;",
+                    "⪤": "&glj;",
+                    "≩": "&gneqq;",
+                    "⪊": "&gnapprox;",
+                    "⪈": "&gneq;",
+                    "⋧": "&gnsim;",
+                    "\uD835\uDD58": "&gopf;",
+                    "ℊ": "&gscr;",
+                    "⪎": "&gsime;",
+                    "⪐": "&gsiml;",
+                    "⪧": "&gtcc;",
+                    "⩺": "&gtcir;",
+                    "⋗": "&gtrdot;",
+                    "⦕": "&gtlPar;",
+                    "⩼": "&gtquest;",
+                    "⥸": "&gtrarr;",
+                    "≩︀": "&gvnE;",
+                    "ъ": "&hardcy;",
+                    "⥈": "&harrcir;",
+                    "↭": "&leftrightsquigarrow;",
+                    "ℏ": "&plankv;",
+                    "ĥ": "&hcirc;",
+                    "♥": "&heartsuit;",
+                    "…": "&mldr;",
+                    "⊹": "&hercon;",
+                    "\uD835\uDD25": "&hfr;",
+                    "⤥": "&searhk;",
+                    "⤦": "&swarhk;",
+                    "⇿": "&hoarr;",
+                    "∻": "&homtht;",
+                    "↩": "&larrhk;",
+                    "↪": "&rarrhk;",
+                    "\uD835\uDD59": "&hopf;",
+                    "―": "&horbar;",
+                    "\uD835\uDCBD": "&hscr;",
+                    "ħ": "&hstrok;",
+                    "⁃": "&hybull;",
+                    "\xed": "&iacute;",
+                    "\xee": "&icirc;",
+                    "и": "&icy;",
+                    "е": "&iecy;",
+                    "\xa1": "&iexcl;",
+                    "\uD835\uDD26": "&ifr;",
+                    "\xec": "&igrave;",
+                    "⨌": "&qint;",
+                    "∭": "&tint;",
+                    "⧜": "&iinfin;",
+                    "℩": "&iiota;",
+                    "ĳ": "&ijlig;",
+                    "ī": "&imacr;",
+                    "ı": "&inodot;",
+                    "⊷": "&imof;",
+                    "Ƶ": "&imped;",
+                    "℅": "&incare;",
+                    "∞": "&infin;",
+                    "⧝": "&infintie;",
+                    "⊺": "&intercal;",
+                    "⨗": "&intlarhk;",
+                    "⨼": "&iprod;",
+                    "ё": "&iocy;",
+                    "į": "&iogon;",
+                    "\uD835\uDD5A": "&iopf;",
+                    "ι": "&iota;",
+                    "\xbf": "&iquest;",
+                    "\uD835\uDCBE": "&iscr;",
+                    "⋹": "&isinE;",
+                    "⋵": "&isindot;",
+                    "⋴": "&isins;",
+                    "⋳": "&isinsv;",
+                    "ĩ": "&itilde;",
+                    "і": "&iukcy;",
+                    "\xef": "&iuml;",
+                    "ĵ": "&jcirc;",
+                    "й": "&jcy;",
+                    "\uD835\uDD27": "&jfr;",
+                    "ȷ": "&jmath;",
+                    "\uD835\uDD5B": "&jopf;",
+                    "\uD835\uDCBF": "&jscr;",
+                    "ј": "&jsercy;",
+                    "є": "&jukcy;",
+                    "κ": "&kappa;",
+                    "ϰ": "&varkappa;",
+                    "ķ": "&kcedil;",
+                    "к": "&kcy;",
+                    "\uD835\uDD28": "&kfr;",
+                    "ĸ": "&kgreen;",
+                    "х": "&khcy;",
+                    "ќ": "&kjcy;",
+                    "\uD835\uDD5C": "&kopf;",
+                    "\uD835\uDCC0": "&kscr;",
+                    "⤛": "&lAtail;",
+                    "⤎": "&lBarr;",
+                    "⪋": "&lesseqqgtr;",
+                    "⥢": "&lHar;",
+                    "ĺ": "&lacute;",
+                    "⦴": "&laemptyv;",
+                    "λ": "&lambda;",
+                    "⦑": "&langd;",
+                    "⪅": "&lessapprox;",
+                    "\xab": "&laquo;",
+                    "⤟": "&larrbfs;",
+                    "⤝": "&larrfs;",
+                    "↫": "&looparrowleft;",
+                    "⤹": "&larrpl;",
+                    "⥳": "&larrsim;",
+                    "↢": "&leftarrowtail;",
+                    "⪫": "&lat;",
+                    "⤙": "&latail;",
+                    "⪭": "&late;",
+                    "⪭︀": "&lates;",
+                    "⤌": "&lbarr;",
+                    "❲": "&lbbrk;",
+                    "{": "&lcub;",
+                    "[": "&lsqb;",
+                    "⦋": "&lbrke;",
+                    "⦏": "&lbrksld;",
+                    "⦍": "&lbrkslu;",
+                    "ľ": "&lcaron;",
+                    "ļ": "&lcedil;",
+                    "л": "&lcy;",
+                    "⤶": "&ldca;",
+                    "⥧": "&ldrdhar;",
+                    "⥋": "&ldrushar;",
+                    "↲": "&ldsh;",
+                    "≤": "&leq;",
+                    "⇇": "&llarr;",
+                    "⋋": "&lthree;",
+                    "⪨": "&lescc;",
+                    "⩿": "&lesdot;",
+                    "⪁": "&lesdoto;",
+                    "⪃": "&lesdotor;",
+                    "⋚︀": "&lesg;",
+                    "⪓": "&lesges;",
+                    "⋖": "&ltdot;",
+                    "⥼": "&lfisht;",
+                    "\uD835\uDD29": "&lfr;",
+                    "⪑": "&lgE;",
+                    "⥪": "&lharul;",
+                    "▄": "&lhblk;",
+                    "љ": "&ljcy;",
+                    "⥫": "&llhard;",
+                    "◺": "&lltri;",
+                    "ŀ": "&lmidot;",
+                    "⎰": "&lmoustache;",
+                    "≨": "&lneqq;",
+                    "⪉": "&lnapprox;",
+                    "⪇": "&lneq;",
+                    "⋦": "&lnsim;",
+                    "⟬": "&loang;",
+                    "⇽": "&loarr;",
+                    "⟼": "&xmap;",
+                    "↬": "&rarrlp;",
+                    "⦅": "&lopar;",
+                    "\uD835\uDD5D": "&lopf;",
+                    "⨭": "&loplus;",
+                    "⨴": "&lotimes;",
+                    "∗": "&lowast;",
+                    "◊": "&lozenge;",
+                    "(": "&lpar;",
+                    "⦓": "&lparlt;",
+                    "⥭": "&lrhard;",
+                    "‎": "&lrm;",
+                    "⊿": "&lrtri;",
+                    "‹": "&lsaquo;",
+                    "\uD835\uDCC1": "&lscr;",
+                    "⪍": "&lsime;",
+                    "⪏": "&lsimg;",
+                    "‚": "&sbquo;",
+                    "ł": "&lstrok;",
+                    "⪦": "&ltcc;",
+                    "⩹": "&ltcir;",
+                    "⋉": "&ltimes;",
+                    "⥶": "&ltlarr;",
+                    "⩻": "&ltquest;",
+                    "⦖": "&ltrPar;",
+                    "◃": "&triangleleft;",
+                    "⥊": "&lurdshar;",
+                    "⥦": "&luruhar;",
+                    "≨︀": "&lvnE;",
+                    "∺": "&mDDot;",
+                    "\xaf": "&strns;",
+                    "♂": "&male;",
+                    "✠": "&maltese;",
+                    "▮": "&marker;",
+                    "⨩": "&mcomma;",
+                    "м": "&mcy;",
+                    "—": "&mdash;",
+                    "\uD835\uDD2A": "&mfr;",
+                    "℧": "&mho;",
+                    "\xb5": "&micro;",
+                    "⫰": "&midcir;",
+                    "−": "&minus;",
+                    "⨪": "&minusdu;",
+                    "⫛": "&mlcp;",
+                    "⊧": "&models;",
+                    "\uD835\uDD5E": "&mopf;",
+                    "\uD835\uDCC2": "&mscr;",
+                    "μ": "&mu;",
+                    "⊸": "&mumap;",
+                    "⋙̸": "&nGg;",
+                    "≫⃒": "&nGt;",
+                    "⇍": "&nlArr;",
+                    "⇎": "&nhArr;",
+                    "⋘̸": "&nLl;",
+                    "≪⃒": "&nLt;",
+                    "⇏": "&nrArr;",
+                    "⊯": "&nVDash;",
+                    "⊮": "&nVdash;",
+                    "ń": "&nacute;",
+                    "∠⃒": "&nang;",
+                    "⩰̸": "&napE;",
+                    "≋̸": "&napid;",
+                    "ŉ": "&napos;",
+                    "♮": "&natural;",
+                    "⩃": "&ncap;",
+                    "ň": "&ncaron;",
+                    "ņ": "&ncedil;",
+                    "⩭̸": "&ncongdot;",
+                    "⩂": "&ncup;",
+                    "н": "&ncy;",
+                    "–": "&ndash;",
+                    "⇗": "&neArr;",
+                    "⤤": "&nearhk;",
+                    "≐̸": "&nedot;",
+                    "⤨": "&toea;",
+                    "\uD835\uDD2B": "&nfr;",
+                    "↮": "&nleftrightarrow;",
+                    "⫲": "&nhpar;",
+                    "⋼": "&nis;",
+                    "⋺": "&nisd;",
+                    "њ": "&njcy;",
+                    "≦̸": "&nleqq;",
+                    "↚": "&nleftarrow;",
+                    "‥": "&nldr;",
+                    "\uD835\uDD5F": "&nopf;",
+                    "\xac": "&not;",
+                    "⋹̸": "&notinE;",
+                    "⋵̸": "&notindot;",
+                    "⋷": "&notinvb;",
+                    "⋶": "&notinvc;",
+                    "⋾": "&notnivb;",
+                    "⋽": "&notnivc;",
+                    "⫽⃥": "&nparsl;",
+                    "∂̸": "&npart;",
+                    "⨔": "&npolint;",
+                    "↛": "&nrightarrow;",
+                    "⤳̸": "&nrarrc;",
+                    "↝̸": "&nrarrw;",
+                    "\uD835\uDCC3": "&nscr;",
+                    "⊄": "&nsub;",
+                    "⫅̸": "&nsubseteqq;",
+                    "⊅": "&nsup;",
+                    "⫆̸": "&nsupseteqq;",
+                    "\xf1": "&ntilde;",
+                    "ν": "&nu;",
+                    "#": "&num;",
+                    "№": "&numero;",
+                    " ": "&numsp;",
+                    "⊭": "&nvDash;",
+                    "⤄": "&nvHarr;",
+                    "≍⃒": "&nvap;",
+                    "⊬": "&nvdash;",
+                    "≥⃒": "&nvge;",
+                    ">⃒": "&nvgt;",
+                    "⧞": "&nvinfin;",
+                    "⤂": "&nvlArr;",
+                    "≤⃒": "&nvle;",
+                    "<⃒": "&nvlt;",
+                    "⊴⃒": "&nvltrie;",
+                    "⤃": "&nvrArr;",
+                    "⊵⃒": "&nvrtrie;",
+                    "∼⃒": "&nvsim;",
+                    "⇖": "&nwArr;",
+                    "⤣": "&nwarhk;",
+                    "⤧": "&nwnear;",
+                    "\xf3": "&oacute;",
+                    "\xf4": "&ocirc;",
+                    "о": "&ocy;",
+                    "ő": "&odblac;",
+                    "⨸": "&odiv;",
+                    "⦼": "&odsold;",
+                    "œ": "&oelig;",
+                    "⦿": "&ofcir;",
+                    "\uD835\uDD2C": "&ofr;",
+                    "˛": "&ogon;",
+                    "\xf2": "&ograve;",
+                    "⧁": "&ogt;",
+                    "⦵": "&ohbar;",
+                    "⦾": "&olcir;",
+                    "⦻": "&olcross;",
+                    "⧀": "&olt;",
+                    "ō": "&omacr;",
+                    "ω": "&omega;",
+                    "ο": "&omicron;",
+                    "⦶": "&omid;",
+                    "\uD835\uDD60": "&oopf;",
+                    "⦷": "&opar;",
+                    "⦹": "&operp;",
+                    "∨": "&vee;",
+                    "⩝": "&ord;",
+                    "ℴ": "&oscr;",
+                    "\xaa": "&ordf;",
+                    "\xba": "&ordm;",
+                    "⊶": "&origof;",
+                    "⩖": "&oror;",
+                    "⩗": "&orslope;",
+                    "⩛": "&orv;",
+                    "\xf8": "&oslash;",
+                    "⊘": "&osol;",
+                    "\xf5": "&otilde;",
+                    "⨶": "&otimesas;",
+                    "\xf6": "&ouml;",
+                    "⌽": "&ovbar;",
+                    "\xb6": "&para;",
+                    "⫳": "&parsim;",
+                    "⫽": "&parsl;",
+                    "п": "&pcy;",
+                    "%": "&percnt;",
+                    ".": "&period;",
+                    "‰": "&permil;",
+                    "‱": "&pertenk;",
+                    "\uD835\uDD2D": "&pfr;",
+                    "φ": "&phi;",
+                    "ϕ": "&varphi;",
+                    "☎": "&phone;",
+                    "π": "&pi;",
+                    "ϖ": "&varpi;",
+                    "ℎ": "&planckh;",
+                    "+": "&plus;",
+                    "⨣": "&plusacir;",
+                    "⨢": "&pluscir;",
+                    "⨥": "&plusdu;",
+                    "⩲": "&pluse;",
+                    "⨦": "&plussim;",
+                    "⨧": "&plustwo;",
+                    "⨕": "&pointint;",
+                    "\uD835\uDD61": "&popf;",
+                    "\xa3": "&pound;",
+                    "⪳": "&prE;",
+                    "⪷": "&precapprox;",
+                    "⪹": "&prnap;",
+                    "⪵": "&prnE;",
+                    "⋨": "&prnsim;",
+                    "′": "&prime;",
+                    "⌮": "&profalar;",
+                    "⌒": "&profline;",
+                    "⌓": "&profsurf;",
+                    "⊰": "&prurel;",
+                    "\uD835\uDCC5": "&pscr;",
+                    "ψ": "&psi;",
+                    " ": "&puncsp;",
+                    "\uD835\uDD2E": "&qfr;",
+                    "\uD835\uDD62": "&qopf;",
+                    "⁗": "&qprime;",
+                    "\uD835\uDCC6": "&qscr;",
+                    "⨖": "&quatint;",
+                    "?": "&quest;",
+                    "⤜": "&rAtail;",
+                    "⥤": "&rHar;",
+                    "∽̱": "&race;",
+                    "ŕ": "&racute;",
+                    "⦳": "&raemptyv;",
+                    "⦒": "&rangd;",
+                    "⦥": "&range;",
+                    "\xbb": "&raquo;",
+                    "⥵": "&rarrap;",
+                    "⤠": "&rarrbfs;",
+                    "⤳": "&rarrc;",
+                    "⤞": "&rarrfs;",
+                    "⥅": "&rarrpl;",
+                    "⥴": "&rarrsim;",
+                    "↣": "&rightarrowtail;",
+                    "↝": "&rightsquigarrow;",
+                    "⤚": "&ratail;",
+                    "∶": "&ratio;",
+                    "❳": "&rbbrk;",
+                    "}": "&rcub;",
+                    "]": "&rsqb;",
+                    "⦌": "&rbrke;",
+                    "⦎": "&rbrksld;",
+                    "⦐": "&rbrkslu;",
+                    "ř": "&rcaron;",
+                    "ŗ": "&rcedil;",
+                    "р": "&rcy;",
+                    "⤷": "&rdca;",
+                    "⥩": "&rdldhar;",
+                    "↳": "&rdsh;",
+                    "▭": "&rect;",
+                    "⥽": "&rfisht;",
+                    "\uD835\uDD2F": "&rfr;",
+                    "⥬": "&rharul;",
+                    "ρ": "&rho;",
+                    "ϱ": "&varrho;",
+                    "⇉": "&rrarr;",
+                    "⋌": "&rthree;",
+                    "˚": "&ring;",
+                    "‏": "&rlm;",
+                    "⎱": "&rmoustache;",
+                    "⫮": "&rnmid;",
+                    "⟭": "&roang;",
+                    "⇾": "&roarr;",
+                    "⦆": "&ropar;",
+                    "\uD835\uDD63": "&ropf;",
+                    "⨮": "&roplus;",
+                    "⨵": "&rotimes;",
+                    ")": "&rpar;",
+                    "⦔": "&rpargt;",
+                    "⨒": "&rppolint;",
+                    "›": "&rsaquo;",
+                    "\uD835\uDCC7": "&rscr;",
+                    "⋊": "&rtimes;",
+                    "▹": "&triangleright;",
+                    "⧎": "&rtriltri;",
+                    "⥨": "&ruluhar;",
+                    "℞": "&rx;",
+                    "ś": "&sacute;",
+                    "⪴": "&scE;",
+                    "⪸": "&succapprox;",
+                    "š": "&scaron;",
+                    "ş": "&scedil;",
+                    "ŝ": "&scirc;",
+                    "⪶": "&succneqq;",
+                    "⪺": "&succnapprox;",
+                    "⋩": "&succnsim;",
+                    "⨓": "&scpolint;",
+                    "с": "&scy;",
+                    "⋅": "&sdot;",
+                    "⩦": "&sdote;",
+                    "⇘": "&seArr;",
+                    "\xa7": "&sect;",
+                    ";": "&semi;",
+                    "⤩": "&tosa;",
+                    "✶": "&sext;",
+                    "\uD835\uDD30": "&sfr;",
+                    "♯": "&sharp;",
+                    "щ": "&shchcy;",
+                    "ш": "&shcy;",
+                    "\xad": "&shy;",
+                    "σ": "&sigma;",
+                    "ς": "&varsigma;",
+                    "⩪": "&simdot;",
+                    "⪞": "&simg;",
+                    "⪠": "&simgE;",
+                    "⪝": "&siml;",
+                    "⪟": "&simlE;",
+                    "≆": "&simne;",
+                    "⨤": "&simplus;",
+                    "⥲": "&simrarr;",
+                    "⨳": "&smashp;",
+                    "⧤": "&smeparsl;",
+                    "⌣": "&ssmile;",
+                    "⪪": "&smt;",
+                    "⪬": "&smte;",
+                    "⪬︀": "&smtes;",
+                    "ь": "&softcy;",
+                    "/": "&sol;",
+                    "⧄": "&solb;",
+                    "⌿": "&solbar;",
+                    "\uD835\uDD64": "&sopf;",
+                    "♠": "&spadesuit;",
+                    "⊓︀": "&sqcaps;",
+                    "⊔︀": "&sqcups;",
+                    "\uD835\uDCC8": "&sscr;",
+                    "☆": "&star;",
+                    "⊂": "&subset;",
+                    "⫅": "&subseteqq;",
+                    "⪽": "&subdot;",
+                    "⫃": "&subedot;",
+                    "⫁": "&submult;",
+                    "⫋": "&subsetneqq;",
+                    "⊊": "&subsetneq;",
+                    "⪿": "&subplus;",
+                    "⥹": "&subrarr;",
+                    "⫇": "&subsim;",
+                    "⫕": "&subsub;",
+                    "⫓": "&subsup;",
+                    "♪": "&sung;",
+                    "\xb9": "&sup1;",
+                    "\xb2": "&sup2;",
+                    "\xb3": "&sup3;",
+                    "⫆": "&supseteqq;",
+                    "⪾": "&supdot;",
+                    "⫘": "&supdsub;",
+                    "⫄": "&supedot;",
+                    "⟉": "&suphsol;",
+                    "⫗": "&suphsub;",
+                    "⥻": "&suplarr;",
+                    "⫂": "&supmult;",
+                    "⫌": "&supsetneqq;",
+                    "⊋": "&supsetneq;",
+                    "⫀": "&supplus;",
+                    "⫈": "&supsim;",
+                    "⫔": "&supsub;",
+                    "⫖": "&supsup;",
+                    "⇙": "&swArr;",
+                    "⤪": "&swnwar;",
+                    "\xdf": "&szlig;",
+                    "⌖": "&target;",
+                    "τ": "&tau;",
+                    "ť": "&tcaron;",
+                    "ţ": "&tcedil;",
+                    "т": "&tcy;",
+                    "⌕": "&telrec;",
+                    "\uD835\uDD31": "&tfr;",
+                    "θ": "&theta;",
+                    "ϑ": "&vartheta;",
+                    "\xfe": "&thorn;",
+                    "\xd7": "&times;",
+                    "⨱": "&timesbar;",
+                    "⨰": "&timesd;",
+                    "⌶": "&topbot;",
+                    "⫱": "&topcir;",
+                    "\uD835\uDD65": "&topf;",
+                    "⫚": "&topfork;",
+                    "‴": "&tprime;",
+                    "▵": "&utri;",
+                    "≜": "&trie;",
+                    "◬": "&tridot;",
+                    "⨺": "&triminus;",
+                    "⨹": "&triplus;",
+                    "⧍": "&trisb;",
+                    "⨻": "&tritime;",
+                    "⏢": "&trpezium;",
+                    "\uD835\uDCC9": "&tscr;",
+                    "ц": "&tscy;",
+                    "ћ": "&tshcy;",
+                    "ŧ": "&tstrok;",
+                    "⥣": "&uHar;",
+                    "\xfa": "&uacute;",
+                    "ў": "&ubrcy;",
+                    "ŭ": "&ubreve;",
+                    "\xfb": "&ucirc;",
+                    "у": "&ucy;",
+                    "ű": "&udblac;",
+                    "⥾": "&ufisht;",
+                    "\uD835\uDD32": "&ufr;",
+                    "\xf9": "&ugrave;",
+                    "▀": "&uhblk;",
+                    "⌜": "&ulcorner;",
+                    "⌏": "&ulcrop;",
+                    "◸": "&ultri;",
+                    "ū": "&umacr;",
+                    "ų": "&uogon;",
+                    "\uD835\uDD66": "&uopf;",
+                    "υ": "&upsilon;",
+                    "⇈": "&uuarr;",
+                    "⌝": "&urcorner;",
+                    "⌎": "&urcrop;",
+                    "ů": "&uring;",
+                    "◹": "&urtri;",
+                    "\uD835\uDCCA": "&uscr;",
+                    "⋰": "&utdot;",
+                    "ũ": "&utilde;",
+                    "\xfc": "&uuml;",
+                    "⦧": "&uwangle;",
+                    "⫨": "&vBar;",
+                    "⫩": "&vBarv;",
+                    "⦜": "&vangrt;",
+                    "⊊︀": "&vsubne;",
+                    "⫋︀": "&vsubnE;",
+                    "⊋︀": "&vsupne;",
+                    "⫌︀": "&vsupnE;",
+                    "в": "&vcy;",
+                    "⊻": "&veebar;",
+                    "≚": "&veeeq;",
+                    "⋮": "&vellip;",
+                    "\uD835\uDD33": "&vfr;",
+                    "\uD835\uDD67": "&vopf;",
+                    "\uD835\uDCCB": "&vscr;",
+                    "⦚": "&vzigzag;",
+                    "ŵ": "&wcirc;",
+                    "⩟": "&wedbar;",
+                    "≙": "&wedgeq;",
+                    "℘": "&wp;",
+                    "\uD835\uDD34": "&wfr;",
+                    "\uD835\uDD68": "&wopf;",
+                    "\uD835\uDCCC": "&wscr;",
+                    "\uD835\uDD35": "&xfr;",
+                    "ξ": "&xi;",
+                    "⋻": "&xnis;",
+                    "\uD835\uDD69": "&xopf;",
+                    "\uD835\uDCCD": "&xscr;",
+                    "\xfd": "&yacute;",
+                    "я": "&yacy;",
+                    "ŷ": "&ycirc;",
+                    "ы": "&ycy;",
+                    "\xa5": "&yen;",
+                    "\uD835\uDD36": "&yfr;",
+                    "ї": "&yicy;",
+                    "\uD835\uDD6A": "&yopf;",
+                    "\uD835\uDCCE": "&yscr;",
+                    "ю": "&yucy;",
+                    "\xff": "&yuml;",
+                    "ź": "&zacute;",
+                    "ž": "&zcaron;",
+                    "з": "&zcy;",
+                    "ż": "&zdot;",
+                    "ζ": "&zeta;",
+                    "\uD835\uDD37": "&zfr;",
+                    "ж": "&zhcy;",
+                    "⇝": "&zigrarr;",
+                    "\uD835\uDD6B": "&zopf;",
+                    "\uD835\uDCCF": "&zscr;",
+                    "‍": "&zwj;",
+                    "‌": "&zwnj;"
+                }
+            }
+        };
+    }
+});
+// ../../node_modules/html-entities/lib/numeric-unicode-map.js
+var require_numeric_unicode_map = __commonJS({
+    "../../node_modules/html-entities/lib/numeric-unicode-map.js" (exports) {
+        "use strict";
+        Object.defineProperty(exports, "__esModule", {
+            value: true
+        });
+        exports.numericUnicodeMap = {
+            0: 65533,
+            128: 8364,
+            130: 8218,
+            131: 402,
+            132: 8222,
+            133: 8230,
+            134: 8224,
+            135: 8225,
+            136: 710,
+            137: 8240,
+            138: 352,
+            139: 8249,
+            140: 338,
+            142: 381,
+            145: 8216,
+            146: 8217,
+            147: 8220,
+            148: 8221,
+            149: 8226,
+            150: 8211,
+            151: 8212,
+            152: 732,
+            153: 8482,
+            154: 353,
+            155: 8250,
+            156: 339,
+            158: 382,
+            159: 376
+        };
+    }
+});
+// ../../node_modules/html-entities/lib/surrogate-pairs.js
+var require_surrogate_pairs = __commonJS({
+    "../../node_modules/html-entities/lib/surrogate-pairs.js" (exports) {
+        "use strict";
+        Object.defineProperty(exports, "__esModule", {
+            value: true
+        });
+        exports.fromCodePoint = String.fromCodePoint || function(astralCodePoint) {
+            return String.fromCharCode(Math.floor((astralCodePoint - 65536) / 1024) + 55296, (astralCodePoint - 65536) % 1024 + 56320);
+        };
+        exports.getCodePoint = String.prototype.codePointAt ? function(input, position) {
+            return input.codePointAt(position);
+        } : function(input, position) {
+            return (input.charCodeAt(position) - 55296) * 1024 + input.charCodeAt(position + 1) - 56320 + 65536;
+        };
+        exports.highSurrogateFrom = 55296;
+        exports.highSurrogateTo = 56319;
+    }
+});
+// ../../node_modules/html-entities/lib/index.js
+var require_lib = __commonJS({
+    "../../node_modules/html-entities/lib/index.js" (exports) {
+        "use strict";
+        var __assign = exports && exports.__assign || function() {
+            __assign = Object.assign || function(t) {
+                for(var s, i = 1, n = arguments.length; i < n; i++){
+                    s = arguments[i];
+                    for(var p2 in s)if (Object.prototype.hasOwnProperty.call(s, p2)) t[p2] = s[p2];
+                }
+                return t;
+            };
+            return __assign.apply(this, arguments);
+        };
+        Object.defineProperty(exports, "__esModule", {
+            value: true
+        });
+        var named_references_1 = require_named_references();
+        var numeric_unicode_map_1 = require_numeric_unicode_map();
+        var surrogate_pairs_1 = require_surrogate_pairs();
+        var allNamedReferences = __assign(__assign({}, named_references_1.namedReferences), {
+            all: named_references_1.namedReferences.html5
+        });
+        var encodeRegExps = {
+            specialChars: /[<>'"&]/g,
+            nonAscii: /(?:[<>'"&\u0080-\uD7FF\uE000-\uFFFF]|[\uD800-\uDBFF][\uDC00-\uDFFF]|[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?:[^\uD800-\uDBFF]|^)[\uDC00-\uDFFF])/g,
+            nonAsciiPrintable: /(?:[<>'"&\x01-\x08\x11-\x15\x17-\x1F\x7f-\uD7FF\uE000-\uFFFF]|[\uD800-\uDBFF][\uDC00-\uDFFF]|[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?:[^\uD800-\uDBFF]|^)[\uDC00-\uDFFF])/g,
+            extensive: /(?:[\x01-\x0c\x0e-\x1f\x21-\x2c\x2e-\x2f\x3a-\x40\x5b-\x60\x7b-\x7d\x7f-\uD7FF\uE000-\uFFFF]|[\uD800-\uDBFF][\uDC00-\uDFFF]|[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?:[^\uD800-\uDBFF]|^)[\uDC00-\uDFFF])/g
+        };
+        var defaultEncodeOptions = {
+            mode: "specialChars",
+            level: "all",
+            numeric: "decimal"
+        };
+        function encode(text, _a) {
+            var _b = _a === void 0 ? defaultEncodeOptions : _a, _c = _b.mode, mode = _c === void 0 ? "specialChars" : _c, _d = _b.numeric, numeric = _d === void 0 ? "decimal" : _d, _e = _b.level, level = _e === void 0 ? "all" : _e;
+            if (!text) return "";
+            var encodeRegExp = encodeRegExps[mode];
+            var references = allNamedReferences[level].characters;
+            var isHex = numeric === "hexadecimal";
+            encodeRegExp.lastIndex = 0;
+            var _b = encodeRegExp.exec(text);
+            var _c;
+            if (_b) {
+                _c = "";
+                var _d = 0;
+                do {
+                    if (_d !== _b.index) _c += text.substring(_d, _b.index);
+                    var _e = _b[0];
+                    var result_1 = references[_e];
+                    if (!result_1) {
+                        var code_1 = _e.length > 1 ? surrogate_pairs_1.getCodePoint(_e, 0) : _e.charCodeAt(0);
+                        result_1 = (isHex ? "&#x" + code_1.toString(16) : "&#" + code_1) + ";";
+                    }
+                    _c += result_1;
+                    _d = _b.index + _e.length;
+                }while (_b = encodeRegExp.exec(text));
+                if (_d !== text.length) _c += text.substring(_d);
+            } else _c = text;
+            return _c;
+        }
+        exports.encode = encode;
+        var defaultDecodeOptions = {
+            scope: "body",
+            level: "all"
+        };
+        var strict = /&(?:#\d+|#[xX][\da-fA-F]+|[0-9a-zA-Z]+);/g;
+        var attribute = /&(?:#\d+|#[xX][\da-fA-F]+|[0-9a-zA-Z]+)[;=]?/g;
+        var baseDecodeRegExps = {
+            xml: {
+                strict,
+                attribute,
+                body: named_references_1.bodyRegExps.xml
+            },
+            html4: {
+                strict,
+                attribute,
+                body: named_references_1.bodyRegExps.html4
+            },
+            html5: {
+                strict,
+                attribute,
+                body: named_references_1.bodyRegExps.html5
+            }
+        };
+        var decodeRegExps = __assign(__assign({}, baseDecodeRegExps), {
+            all: baseDecodeRegExps.html5
+        });
+        var fromCharCode = String.fromCharCode;
+        var outOfBoundsChar = fromCharCode(65533);
+        var defaultDecodeEntityOptions = {
+            level: "all"
+        };
+        function decodeEntity(entity, _a) {
+            var _b = (_a === void 0 ? defaultDecodeEntityOptions : _a).level, level = _b === void 0 ? "all" : _b;
+            if (!entity) return "";
+            var _b = entity;
+            var decodeEntityLastChar_1 = entity[entity.length - 1];
+            var decodeResultByReference_1 = allNamedReferences[level].entities[entity];
+            if (decodeResultByReference_1) _b = decodeResultByReference_1;
+            else if (entity[0] === "&" && entity[1] === "#") {
+                var decodeSecondChar_1 = entity[2];
+                var decodeCode_1 = decodeSecondChar_1 == "x" || decodeSecondChar_1 == "X" ? parseInt(entity.substr(3), 16) : parseInt(entity.substr(2));
+                _b = decodeCode_1 >= 1114111 ? outOfBoundsChar : decodeCode_1 > 65535 ? surrogate_pairs_1.fromCodePoint(decodeCode_1) : fromCharCode(numeric_unicode_map_1.numericUnicodeMap[decodeCode_1] || decodeCode_1);
+            }
+            return _b;
+        }
+        exports.decodeEntity = decodeEntity;
+        function decode2(text, _a) {
+            var decodeSecondChar_1 = _a === void 0 ? defaultDecodeOptions : _a, decodeCode_1 = decodeSecondChar_1.level, level = decodeCode_1 === void 0 ? "all" : decodeCode_1, _b = decodeSecondChar_1.scope, scope = _b === void 0 ? level === "xml" ? "strict" : "body" : _b;
+            if (!text) return "";
+            var decodeRegExp = decodeRegExps[level][scope];
+            var references = allNamedReferences[level].entities;
+            var isAttribute = scope === "attribute";
+            var isStrict = scope === "strict";
+            decodeRegExp.lastIndex = 0;
+            var replaceMatch_1 = decodeRegExp.exec(text);
+            var replaceResult_1;
+            if (replaceMatch_1) {
+                replaceResult_1 = "";
+                var replaceLastIndex_1 = 0;
+                do {
+                    if (replaceLastIndex_1 !== replaceMatch_1.index) replaceResult_1 += text.substring(replaceLastIndex_1, replaceMatch_1.index);
+                    var replaceInput_1 = replaceMatch_1[0];
+                    var decodeResult_1 = replaceInput_1;
+                    var decodeEntityLastChar_2 = replaceInput_1[replaceInput_1.length - 1];
+                    if (isAttribute && decodeEntityLastChar_2 === "=") decodeResult_1 = replaceInput_1;
+                    else if (isStrict && decodeEntityLastChar_2 !== ";") decodeResult_1 = replaceInput_1;
+                    else {
+                        var decodeResultByReference_2 = references[replaceInput_1];
+                        if (decodeResultByReference_2) decodeResult_1 = decodeResultByReference_2;
+                        else if (replaceInput_1[0] === "&" && replaceInput_1[1] === "#") {
+                            var decodeSecondChar_2 = replaceInput_1[2];
+                            var decodeCode_2 = decodeSecondChar_2 == "x" || decodeSecondChar_2 == "X" ? parseInt(replaceInput_1.substr(3), 16) : parseInt(replaceInput_1.substr(2));
+                            decodeResult_1 = decodeCode_2 >= 1114111 ? outOfBoundsChar : decodeCode_2 > 65535 ? surrogate_pairs_1.fromCodePoint(decodeCode_2) : fromCharCode(numeric_unicode_map_1.numericUnicodeMap[decodeCode_2] || decodeCode_2);
+                        }
+                    }
+                    replaceResult_1 += decodeResult_1;
+                    replaceLastIndex_1 = replaceMatch_1.index + replaceInput_1.length;
+                }while (replaceMatch_1 = decodeRegExp.exec(text));
+                if (replaceLastIndex_1 !== text.length) replaceResult_1 += text.substring(replaceLastIndex_1);
+            } else replaceResult_1 = text;
+            return replaceResult_1;
+        }
+        exports.decode = decode2;
+    }
+});
+// ../../node_modules/lodash.clonedeep/index.js
+var require_lodash3 = __commonJS({
+    "../../node_modules/lodash.clonedeep/index.js" (exports, module2) {
+        var LARGE_ARRAY_SIZE = 200;
+        var HASH_UNDEFINED = "__lodash_hash_undefined__";
+        var MAX_SAFE_INTEGER = 9007199254740991;
+        var argsTag = "[object Arguments]";
+        var arrayTag = "[object Array]";
+        var boolTag = "[object Boolean]";
+        var dateTag = "[object Date]";
+        var errorTag = "[object Error]";
+        var funcTag = "[object Function]";
+        var genTag = "[object GeneratorFunction]";
+        var mapTag = "[object Map]";
+        var numberTag = "[object Number]";
+        var objectTag = "[object Object]";
+        var promiseTag = "[object Promise]";
+        var regexpTag = "[object RegExp]";
+        var setTag = "[object Set]";
+        var stringTag = "[object String]";
+        var symbolTag = "[object Symbol]";
+        var weakMapTag = "[object WeakMap]";
+        var arrayBufferTag = "[object ArrayBuffer]";
+        var dataViewTag = "[object DataView]";
+        var float32Tag = "[object Float32Array]";
+        var float64Tag = "[object Float64Array]";
+        var int8Tag = "[object Int8Array]";
+        var int16Tag = "[object Int16Array]";
+        var int32Tag = "[object Int32Array]";
+        var uint8Tag = "[object Uint8Array]";
+        var uint8ClampedTag = "[object Uint8ClampedArray]";
+        var uint16Tag = "[object Uint16Array]";
+        var uint32Tag = "[object Uint32Array]";
+        var reRegExpChar = /[\\^$.*+?()[\]{}|]/g;
+        var reFlags = /\w*$/;
+        var reIsHostCtor = /^\[object .+?Constructor\]$/;
+        var reIsUint = /^(?:0|[1-9]\d*)$/;
+        var cloneableTags = {};
+        cloneableTags[argsTag] = cloneableTags[arrayTag] = cloneableTags[arrayBufferTag] = cloneableTags[dataViewTag] = cloneableTags[boolTag] = cloneableTags[dateTag] = cloneableTags[float32Tag] = cloneableTags[float64Tag] = cloneableTags[int8Tag] = cloneableTags[int16Tag] = cloneableTags[int32Tag] = cloneableTags[mapTag] = cloneableTags[numberTag] = cloneableTags[objectTag] = cloneableTags[regexpTag] = cloneableTags[setTag] = cloneableTags[stringTag] = cloneableTags[symbolTag] = cloneableTags[uint8Tag] = cloneableTags[uint8ClampedTag] = cloneableTags[uint16Tag] = cloneableTags[uint32Tag] = true;
+        cloneableTags[errorTag] = cloneableTags[funcTag] = cloneableTags[weakMapTag] = false;
+        var freeGlobal = typeof global == "object" && global && global.Object === Object && global;
+        var freeSelf = typeof self == "object" && self && self.Object === Object && self;
+        var root = freeGlobal || freeSelf || Function("return this")();
+        var freeExports = typeof exports == "object" && exports && !exports.nodeType && exports;
+        var freeModule = freeExports && typeof module2 == "object" && module2 && !module2.nodeType && module2;
+        var moduleExports = freeModule && freeModule.exports === freeExports;
+        function addMapEntry(map, pair) {
+            map.set(pair[0], pair[1]);
+            return map;
+        }
+        function addSetEntry(set, value) {
+            set.add(value);
+            return set;
+        }
+        function arrayEach(array, iteratee) {
+            var index = -1, length = array ? array.length : 0;
+            while(++index < length){
+                if (iteratee(array[index], index, array) === false) break;
+            }
+            return array;
+        }
+        function arrayPush(array, values) {
+            var index = -1, length = values.length, offset = array.length;
+            while(++index < length)array[offset + index] = values[index];
+            return array;
+        }
+        function arrayReduce(array, iteratee, accumulator, initAccum) {
+            var index = -1, length = array ? array.length : 0;
+            if (initAccum && length) accumulator = array[++index];
+            while(++index < length)accumulator = iteratee(accumulator, array[index], index, array);
+            return accumulator;
+        }
+        function baseTimes(n, iteratee) {
+            var index = -1, result = Array(n);
+            while(++index < n)result[index] = iteratee(index);
+            return result;
+        }
+        function getValue(object, key) {
+            return object == null ? void 0 : object[key];
+        }
+        function isHostObject(value) {
+            var result = false;
+            if (value != null && typeof value.toString != "function") try {
+                result = !!(value + "");
+            } catch (e) {}
+            return result;
+        }
+        function mapToArray(map) {
+            var index = -1, result = Array(map.size);
+            map.forEach(function(value, key) {
+                result[++index] = [
+                    key,
+                    value
+                ];
+            });
+            return result;
+        }
+        function overArg(func, transform) {
+            return function(arg) {
+                return func(transform(arg));
+            };
+        }
+        function setToArray(set) {
+            var index = -1, result = Array(set.size);
+            set.forEach(function(value) {
+                result[++index] = value;
+            });
+            return result;
+        }
+        var arrayProto = Array.prototype;
+        var funcProto = Function.prototype;
+        var objectProto = Object.prototype;
+        var coreJsData = root["__core-js_shared__"];
+        var maskSrcKey = function() {
+            var uid = /[^.]+$/.exec(coreJsData && coreJsData.keys && coreJsData.keys.IE_PROTO || "");
+            return uid ? "Symbol(src)_1." + uid : "";
+        }();
+        var funcToString = funcProto.toString;
+        var hasOwnProperty = objectProto.hasOwnProperty;
+        var objectToString = objectProto.toString;
+        var reIsNative = RegExp("^" + funcToString.call(hasOwnProperty).replace(reRegExpChar, "\\$&").replace(/hasOwnProperty|(function).*?(?=\\\()| for .+?(?=\\\])/g, "$1.*?") + "$");
+        var Buffer2 = moduleExports ? root.Buffer : void 0;
+        var Symbol2 = root.Symbol;
+        var Uint8Array2 = root.Uint8Array;
+        var getPrototype = overArg(Object.getPrototypeOf, Object);
+        var objectCreate = Object.create;
+        var propertyIsEnumerable = objectProto.propertyIsEnumerable;
+        var splice = arrayProto.splice;
+        var nativeGetSymbols = Object.getOwnPropertySymbols;
+        var nativeIsBuffer = Buffer2 ? Buffer2.isBuffer : void 0;
+        var nativeKeys = overArg(Object.keys, Object);
+        var DataView = getNative(root, "DataView");
+        var Map = getNative(root, "Map");
+        var Promise2 = getNative(root, "Promise");
+        var Set2 = getNative(root, "Set");
+        var WeakMap = getNative(root, "WeakMap");
+        var nativeCreate = getNative(Object, "create");
+        var dataViewCtorString = toSource(DataView);
+        var mapCtorString = toSource(Map);
+        var promiseCtorString = toSource(Promise2);
+        var setCtorString = toSource(Set2);
+        var weakMapCtorString = toSource(WeakMap);
+        var symbolProto = Symbol2 ? Symbol2.prototype : void 0;
+        var symbolValueOf = symbolProto ? symbolProto.valueOf : void 0;
+        function Hash(entries) {
+            var index = -1, length = entries ? entries.length : 0;
+            this.clear();
+            while(++index < length){
+                var entry = entries[index];
+                this.set(entry[0], entry[1]);
+            }
+        }
+        function hashClear() {
+            this.__data__ = nativeCreate ? nativeCreate(null) : {};
+        }
+        function hashDelete(key) {
+            return this.has(key) && delete this.__data__[key];
+        }
+        function hashGet(key) {
+            var data = this.__data__;
+            if (nativeCreate) {
+                var result = data[key];
+                return result === HASH_UNDEFINED ? void 0 : result;
+            }
+            return hasOwnProperty.call(data, key) ? data[key] : void 0;
+        }
+        function hashHas(key) {
+            var data = this.__data__;
+            return nativeCreate ? data[key] !== void 0 : hasOwnProperty.call(data, key);
+        }
+        function hashSet(key, value) {
+            var data = this.__data__;
+            data[key] = nativeCreate && value === void 0 ? HASH_UNDEFINED : value;
+            return this;
+        }
+        Hash.prototype.clear = hashClear;
+        Hash.prototype["delete"] = hashDelete;
+        Hash.prototype.get = hashGet;
+        Hash.prototype.has = hashHas;
+        Hash.prototype.set = hashSet;
+        function ListCache(entries) {
+            var index = -1, length = entries ? entries.length : 0;
+            this.clear();
+            while(++index < length){
+                var entry = entries[index];
+                this.set(entry[0], entry[1]);
+            }
+        }
+        function listCacheClear() {
+            this.__data__ = [];
+        }
+        function listCacheDelete(key) {
+            var data = this.__data__, index = assocIndexOf(data, key);
+            if (index < 0) return false;
+            var lastIndex = data.length - 1;
+            if (index == lastIndex) data.pop();
+            else splice.call(data, index, 1);
+            return true;
+        }
+        function listCacheGet(key) {
+            var data = this.__data__, index = assocIndexOf(data, key);
+            return index < 0 ? void 0 : data[index][1];
+        }
+        function listCacheHas(key) {
+            return assocIndexOf(this.__data__, key) > -1;
+        }
+        function listCacheSet(key, value) {
+            var data = this.__data__, index = assocIndexOf(data, key);
+            if (index < 0) data.push([
+                key,
+                value
+            ]);
+            else data[index][1] = value;
+            return this;
+        }
+        ListCache.prototype.clear = listCacheClear;
+        ListCache.prototype["delete"] = listCacheDelete;
+        ListCache.prototype.get = listCacheGet;
+        ListCache.prototype.has = listCacheHas;
+        ListCache.prototype.set = listCacheSet;
+        function MapCache(entries) {
+            var index = -1, length = entries ? entries.length : 0;
+            this.clear();
+            while(++index < length){
+                var entry = entries[index];
+                this.set(entry[0], entry[1]);
+            }
+        }
+        function mapCacheClear() {
+            this.__data__ = {
+                hash: new Hash(),
+                map: new (Map || ListCache)(),
+                string: new Hash()
+            };
+        }
+        function mapCacheDelete(key) {
+            return getMapData(this, key)["delete"](key);
+        }
+        function mapCacheGet(key) {
+            return getMapData(this, key).get(key);
+        }
+        function mapCacheHas(key) {
+            return getMapData(this, key).has(key);
+        }
+        function mapCacheSet(key, value) {
+            getMapData(this, key).set(key, value);
+            return this;
+        }
+        MapCache.prototype.clear = mapCacheClear;
+        MapCache.prototype["delete"] = mapCacheDelete;
+        MapCache.prototype.get = mapCacheGet;
+        MapCache.prototype.has = mapCacheHas;
+        MapCache.prototype.set = mapCacheSet;
+        function Stack(entries) {
+            this.__data__ = new ListCache(entries);
+        }
+        function stackClear() {
+            this.__data__ = new ListCache();
+        }
+        function stackDelete(key) {
+            return this.__data__["delete"](key);
+        }
+        function stackGet(key) {
+            return this.__data__.get(key);
+        }
+        function stackHas(key) {
+            return this.__data__.has(key);
+        }
+        function stackSet(key, value) {
+            var cache = this.__data__;
+            if (cache instanceof ListCache) {
+                var pairs = cache.__data__;
+                if (!Map || pairs.length < LARGE_ARRAY_SIZE - 1) {
+                    pairs.push([
+                        key,
+                        value
+                    ]);
+                    return this;
+                }
+                cache = this.__data__ = new MapCache(pairs);
+            }
+            cache.set(key, value);
+            return this;
+        }
+        Stack.prototype.clear = stackClear;
+        Stack.prototype["delete"] = stackDelete;
+        Stack.prototype.get = stackGet;
+        Stack.prototype.has = stackHas;
+        Stack.prototype.set = stackSet;
+        function arrayLikeKeys(value, inherited) {
+            var result = isArray(value) || isArguments(value) ? baseTimes(value.length, String) : [];
+            var length = result.length, skipIndexes = !!length;
+            for(var key in value)if ((inherited || hasOwnProperty.call(value, key)) && !(skipIndexes && (key == "length" || isIndex(key, length)))) result.push(key);
+            return result;
+        }
+        function assignValue(object, key, value) {
+            var objValue = object[key];
+            if (!(hasOwnProperty.call(object, key) && eq(objValue, value)) || value === void 0 && !(key in object)) object[key] = value;
+        }
+        function assocIndexOf(array, key) {
+            var length = array.length;
+            while(length--){
+                if (eq(array[length][0], key)) return length;
+            }
+            return -1;
+        }
+        function baseAssign(object, source) {
+            return object && copyObject(source, keys(source), object);
+        }
+        function baseClone(value, isDeep, isFull, customizer, key, object, stack) {
+            var result;
+            if (customizer) result = object ? customizer(value, key, object, stack) : customizer(value);
+            if (result !== void 0) return result;
+            if (!isObject(value)) return value;
+            var isArr = isArray(value);
+            if (isArr) {
+                result = initCloneArray(value);
+                if (!isDeep) return copyArray(value, result);
+            } else {
+                var tag = getTag(value), isFunc = tag == funcTag || tag == genTag;
+                if (isBuffer(value)) return cloneBuffer(value, isDeep);
+                if (tag == objectTag || tag == argsTag || isFunc && !object) {
+                    if (isHostObject(value)) return object ? value : {};
+                    result = initCloneObject(isFunc ? {} : value);
+                    if (!isDeep) return copySymbols(value, baseAssign(result, value));
+                } else {
+                    if (!cloneableTags[tag]) return object ? value : {};
+                    result = initCloneByTag(value, tag, baseClone, isDeep);
+                }
+            }
+            stack || (stack = new Stack());
+            var stacked = stack.get(value);
+            if (stacked) return stacked;
+            stack.set(value, result);
+            if (!isArr) var props = isFull ? getAllKeys(value) : keys(value);
+            arrayEach(props || value, function(subValue, key2) {
+                if (props) {
+                    key2 = subValue;
+                    subValue = value[key2];
+                }
+                assignValue(result, key2, baseClone(subValue, isDeep, isFull, customizer, key2, value, stack));
+            });
+            return result;
+        }
+        function baseCreate(proto) {
+            return isObject(proto) ? objectCreate(proto) : {};
+        }
+        function baseGetAllKeys(object, keysFunc, symbolsFunc) {
+            var result = keysFunc(object);
+            return isArray(object) ? result : arrayPush(result, symbolsFunc(object));
+        }
+        function baseGetTag(value) {
+            return objectToString.call(value);
+        }
+        function baseIsNative(value) {
+            if (!isObject(value) || isMasked(value)) return false;
+            var pattern = isFunction(value) || isHostObject(value) ? reIsNative : reIsHostCtor;
+            return pattern.test(toSource(value));
+        }
+        function baseKeys(object) {
+            if (!isPrototype(object)) return nativeKeys(object);
+            var result = [];
+            for(var key in Object(object))if (hasOwnProperty.call(object, key) && key != "constructor") result.push(key);
+            return result;
+        }
+        function cloneBuffer(buffer, isDeep) {
+            if (isDeep) return buffer.slice();
+            var result = new buffer.constructor(buffer.length);
+            buffer.copy(result);
+            return result;
+        }
+        function cloneArrayBuffer(arrayBuffer) {
+            var result = new arrayBuffer.constructor(arrayBuffer.byteLength);
+            new Uint8Array2(result).set(new Uint8Array2(arrayBuffer));
+            return result;
+        }
+        function cloneDataView(dataView, isDeep) {
+            var buffer = isDeep ? cloneArrayBuffer(dataView.buffer) : dataView.buffer;
+            return new dataView.constructor(buffer, dataView.byteOffset, dataView.byteLength);
+        }
+        function cloneMap(map, isDeep, cloneFunc) {
+            var array = isDeep ? cloneFunc(mapToArray(map), true) : mapToArray(map);
+            return arrayReduce(array, addMapEntry, new map.constructor());
+        }
+        function cloneRegExp(regexp) {
+            var result = new regexp.constructor(regexp.source, reFlags.exec(regexp));
+            result.lastIndex = regexp.lastIndex;
+            return result;
+        }
+        function cloneSet(set, isDeep, cloneFunc) {
+            var array = isDeep ? cloneFunc(setToArray(set), true) : setToArray(set);
+            return arrayReduce(array, addSetEntry, new set.constructor());
+        }
+        function cloneSymbol(symbol) {
+            return symbolValueOf ? Object(symbolValueOf.call(symbol)) : {};
+        }
+        function cloneTypedArray(typedArray, isDeep) {
+            var buffer = isDeep ? cloneArrayBuffer(typedArray.buffer) : typedArray.buffer;
+            return new typedArray.constructor(buffer, typedArray.byteOffset, typedArray.length);
+        }
+        function copyArray(source, array) {
+            var index = -1, length = source.length;
+            array || (array = Array(length));
+            while(++index < length)array[index] = source[index];
+            return array;
+        }
+        function copyObject(source, props, object, customizer) {
+            object || (object = {});
+            var index = -1, length = props.length;
+            while(++index < length){
+                var key = props[index];
+                var newValue = customizer ? customizer(object[key], source[key], key, object, source) : void 0;
+                assignValue(object, key, newValue === void 0 ? source[key] : newValue);
+            }
+            return object;
+        }
+        function copySymbols(source, object) {
+            return copyObject(source, getSymbols(source), object);
+        }
+        function getAllKeys(object) {
+            return baseGetAllKeys(object, keys, getSymbols);
+        }
+        function getMapData(map, key) {
+            var data = map.__data__;
+            return isKeyable(key) ? data[typeof key == "string" ? "string" : "hash"] : data.map;
+        }
+        function getNative(object, key) {
+            var value = getValue(object, key);
+            return baseIsNative(value) ? value : void 0;
+        }
+        var getSymbols = nativeGetSymbols ? overArg(nativeGetSymbols, Object) : stubArray;
+        var getTag = baseGetTag;
+        if (DataView && getTag(new DataView(new ArrayBuffer(1))) != dataViewTag || Map && getTag(new Map()) != mapTag || Promise2 && getTag(Promise2.resolve()) != promiseTag || Set2 && getTag(new Set2()) != setTag || WeakMap && getTag(new WeakMap()) != weakMapTag) getTag = function(value) {
+            var result = objectToString.call(value), Ctor = result == objectTag ? value.constructor : void 0, ctorString = Ctor ? toSource(Ctor) : void 0;
+            if (ctorString) switch(ctorString){
+                case dataViewCtorString:
+                    return dataViewTag;
+                case mapCtorString:
+                    return mapTag;
+                case promiseCtorString:
+                    return promiseTag;
+                case setCtorString:
+                    return setTag;
+                case weakMapCtorString:
+                    return weakMapTag;
+            }
+            return result;
+        };
+        function initCloneArray(array) {
+            var length = array.length, result = array.constructor(length);
+            if (length && typeof array[0] == "string" && hasOwnProperty.call(array, "index")) {
+                result.index = array.index;
+                result.input = array.input;
+            }
+            return result;
+        }
+        function initCloneObject(object) {
+            return typeof object.constructor == "function" && !isPrototype(object) ? baseCreate(getPrototype(object)) : {};
+        }
+        function initCloneByTag(object, tag, cloneFunc, isDeep) {
+            var Ctor = object.constructor;
+            switch(tag){
+                case arrayBufferTag:
+                    return cloneArrayBuffer(object);
+                case boolTag:
+                case dateTag:
+                    return new Ctor(+object);
+                case dataViewTag:
+                    return cloneDataView(object, isDeep);
+                case float32Tag:
+                case float64Tag:
+                case int8Tag:
+                case int16Tag:
+                case int32Tag:
+                case uint8Tag:
+                case uint8ClampedTag:
+                case uint16Tag:
+                case uint32Tag:
+                    return cloneTypedArray(object, isDeep);
+                case mapTag:
+                    return cloneMap(object, isDeep, cloneFunc);
+                case numberTag:
+                case stringTag:
+                    return new Ctor(object);
+                case regexpTag:
+                    return cloneRegExp(object);
+                case setTag:
+                    return cloneSet(object, isDeep, cloneFunc);
+                case symbolTag:
+                    return cloneSymbol(object);
+            }
+        }
+        function isIndex(value, length) {
+            length = length == null ? MAX_SAFE_INTEGER : length;
+            return !!length && (typeof value == "number" || reIsUint.test(value)) && value > -1 && value % 1 == 0 && value < length;
+        }
+        function isKeyable(value) {
+            var type = typeof value;
+            return type == "string" || type == "number" || type == "symbol" || type == "boolean" ? value !== "__proto__" : value === null;
+        }
+        function isMasked(func) {
+            return !!maskSrcKey && maskSrcKey in func;
+        }
+        function isPrototype(value) {
+            var Ctor = value && value.constructor, proto = typeof Ctor == "function" && Ctor.prototype || objectProto;
+            return value === proto;
+        }
+        function toSource(func) {
+            if (func != null) {
+                try {
+                    return funcToString.call(func);
+                } catch (e) {}
+                try {
+                    return func + "";
+                } catch (e) {}
+            }
+            return "";
+        }
+        function cloneDeep(value) {
+            return baseClone(value, true, true);
+        }
+        function eq(value, other) {
+            return value === other || value !== value && other !== other;
+        }
+        function isArguments(value) {
+            return isArrayLikeObject(value) && hasOwnProperty.call(value, "callee") && (!propertyIsEnumerable.call(value, "callee") || objectToString.call(value) == argsTag);
+        }
+        var isArray = Array.isArray;
+        function isArrayLike(value) {
+            return value != null && isLength(value.length) && !isFunction(value);
+        }
+        function isArrayLikeObject(value) {
+            return isObjectLike(value) && isArrayLike(value);
+        }
+        var isBuffer = nativeIsBuffer || stubFalse;
+        function isFunction(value) {
+            var tag = isObject(value) ? objectToString.call(value) : "";
+            return tag == funcTag || tag == genTag;
+        }
+        function isLength(value) {
+            return typeof value == "number" && value > -1 && value % 1 == 0 && value <= MAX_SAFE_INTEGER;
+        }
+        function isObject(value) {
+            var type = typeof value;
+            return !!value && (type == "object" || type == "function");
+        }
+        function isObjectLike(value) {
+            return !!value && typeof value == "object";
+        }
+        function keys(object) {
+            return isArrayLike(object) ? arrayLikeKeys(object) : baseKeys(object);
+        }
+        function stubArray() {
+            return [];
+        }
+        function stubFalse() {
+            return false;
+        }
+        module2.exports = cloneDeep;
+    }
+});
+// src/main.ts
+var main_exports = {};
+__export(main_exports, {
+    defaults: ()=>defaults,
+    stripHtml: ()=>stripHtml,
+    version: ()=>version2
+});
+// ../codsen-utils/dist/codsen-utils.esm.js
+function O(t) {
+    if (t == null || typeof t != "object") return false;
+    let e = Object.getPrototypeOf(t);
+    return e !== null && e !== Object.prototype && Object.getPrototypeOf(e) !== null ? false : !(Symbol.iterator in t) && !(Symbol.toStringTag in t);
+}
+// src/main.ts
+var import_lodash2 = __toESM(require_lodash(), 1);
+var import_lodash3 = __toESM(require_lodash2(), 1);
+var import_html_entities = __toESM(require_lib(), 1);
+// ../ranges-sort/dist/ranges-sort.esm.js
+var d = {
+    strictlyTwoElementsInRangeArrays: false,
+    progressFn: null
+};
+function g(t, u2) {
+    if (!Array.isArray(t) || !t.length) return t;
+    let n = {
+        ...d,
+        ...u2
+    }, s, o;
+    if (n.strictlyTwoElementsInRangeArrays && !t.every((e, r)=>!Array.isArray(e) || e.length !== 2 ? (s = r, o = e.length, false) : true)) throw new TypeError(`ranges-sort: [THROW_ID_03] The first argument should be an array and must consist of arrays which are natural number indexes representing TWO string index ranges. However, ${s}th range (${JSON.stringify(t[s], null, 4)}) has not two but ${o} elements!`);
+    if (!t.every((e, r)=>!Array.isArray(e) || !Number.isInteger(e[0]) || e[0] < 0 || !Number.isInteger(e[1]) || e[1] < 0 ? (s = r, false) : true)) throw new TypeError(`ranges-sort: [THROW_ID_04] The first argument should be an array and must consist of arrays which are natural number indexes representing string index ranges. However, ${s}th range (${JSON.stringify(t[s], null, 4)}) does not consist of only natural numbers!`);
+    let p2 = t.length ** 2, i = 0;
+    return Array.from(t).sort((e, r)=>(n.progressFn && (i += 1, n.progressFn(Math.floor(i * 100 / p2))), e[0] === r[0] ? e[1] < r[1] ? -1 : e[1] > r[1] ? 1 : 0 : e[0] < r[0] ? -1 : 1));
+}
+// ../ranges-merge/dist/ranges-merge.esm.js
+var d2 = {
+    mergeType: 1,
+    progressFn: null,
+    joinRangesThatTouchEdges: true
+};
+function b(i, r) {
+    function l(e) {
+        return !!e && typeof e == "object" && !Array.isArray(e);
+    }
+    if (!Array.isArray(i) || !i.length) return null;
+    let n;
+    if (r) {
+        if (l(r)) {
+            if (n = {
+                ...d2,
+                ...r
+            }, n.progressFn && l(n.progressFn) && !Object.keys(n.progressFn).length) n.progressFn = null;
+            else if (n.progressFn && typeof n.progressFn != "function") throw new Error(`ranges-merge: [THROW_ID_01] opts.progressFn must be a function! It was given of a type: "${typeof n.progressFn}", equal to ${JSON.stringify(n.progressFn, null, 4)}`);
+            if (![
+                1,
+                2,
+                "1",
+                "2"
+            ].includes(n.mergeType)) throw new Error(`ranges-merge: [THROW_ID_02] opts.mergeType was customised to a wrong thing! It was given of a type: "${typeof n.mergeType}", equal to ${JSON.stringify(n.mergeType, null, 4)}`);
+            if (typeof n.joinRangesThatTouchEdges != "boolean") throw new Error(`ranges-merge: [THROW_ID_04] opts.joinRangesThatTouchEdges was customised to a wrong thing! It was given of a type: "${typeof n.joinRangesThatTouchEdges}", equal to ${JSON.stringify(n.joinRangesThatTouchEdges, null, 4)}`);
+        } else throw new Error(`emlint: [THROW_ID_03] the second input argument must be a plain object. It was given as:
+${JSON.stringify(r, null, 4)} (type ${typeof r})`);
+    } else n = {
+        ...d2
+    };
+    let g2 = i.filter((e)=>Array.isArray(e)).map((e)=>[
+            ...e
+        ]).filter((e)=>e[2] !== void 0 || e[0] !== e[1]), s, o, t;
+    n.progressFn ? s = g(g2, {
+        progressFn: (e)=>{
+            t = Math.floor(e / 5), t !== o && (o = t, n.progressFn(t));
+        }
+    }) : s = g(g2);
+    let a = s.length - 1;
+    for(let e = a; e > 0; e--)n.progressFn && (t = Math.floor((1 - e / a) * 78) + 21, t !== o && t > o && (o = t, n.progressFn(t))), (s[e][0] <= s[e - 1][0] || !n.joinRangesThatTouchEdges && s[e][0] < s[e - 1][1] || n.joinRangesThatTouchEdges && s[e][0] <= s[e - 1][1]) && (s[e - 1][0] = Math.min(s[e][0], s[e - 1][0]), s[e - 1][1] = Math.max(s[e][1], s[e - 1][1]), s[e][2] !== void 0 && (s[e - 1][0] >= s[e][0] || s[e - 1][1] <= s[e][1]) && s[e - 1][2] !== null && (s[e][2] === null && s[e - 1][2] !== null ? s[e - 1][2] = null : s[e - 1][2] != null ? +n.mergeType == 2 && s[e - 1][0] === s[e][0] ? s[e - 1][2] = s[e][2] : s[e - 1][2] += s[e][2] : s[e - 1][2] = s[e][2]), s.splice(e, 1), e = s.length);
+    return s.length ? s : null;
+}
+// ../../node_modules/tiny-invariant/dist/esm/tiny-invariant.js
+var isProduction = false;
+var prefix = "Invariant failed";
+function invariant(condition, message) {
+    if (condition) return;
+    if (isProduction) throw new Error(prefix);
+    var provided = typeof message === "function" ? message() : message;
+    var value = provided ? "".concat(prefix, ": ").concat(provided) : prefix;
+    throw new Error(value);
+}
+// ../ranges-apply/dist/ranges-apply.esm.js
+function _(s, n, r) {
+    let t = 0, p2 = 0;
+    if (arguments.length === 0) throw new Error("ranges-apply: [THROW_ID_01] inputs missing!");
+    if (typeof s != "string") throw new TypeError(`ranges-apply: [THROW_ID_02] first input argument must be a string! Currently it's: ${typeof s}, equal to: ${JSON.stringify(s, null, 4)}`);
+    if (n && !Array.isArray(n)) throw new TypeError(`ranges-apply: [THROW_ID_03] second input argument must be an array (or null)! Currently it's: ${typeof n}, equal to: ${JSON.stringify(n, null, 4)}`);
+    if (r && typeof r != "function") throw new TypeError(`ranges-apply: [THROW_ID_04] the third input argument must be a function (or falsey)! Currently it's: ${typeof r}, equal to: ${JSON.stringify(r, null, 4)}`);
+    if (!n || !n.filter((e)=>e).length) return s;
+    let i;
+    Array.isArray(n) && Number.isInteger(n[0]) && Number.isInteger(n[1]) ? i = [
+        Array.from(n)
+    ] : i = Array.from(n);
+    let f2 = i.length, c2 = 0;
+    i.filter((e)=>e).forEach((e, a)=>{
+        if (r && (t = Math.floor(c2 / f2 * 10), t !== p2 && (p2 = t, r(t))), !Array.isArray(e)) throw new TypeError(`ranges-apply: [THROW_ID_05] ranges array, second input arg., has ${a}th element not an array: ${JSON.stringify(e, null, 4)}, which is ${typeof e}`);
+        if (!Number.isInteger(e[0])) {
+            if (!Number.isInteger(+e[0]) || +e[0] < 0) throw new TypeError(`ranges-apply: [THROW_ID_06] ranges array, second input arg. has ${a}th element, array ${JSON.stringify(e, null, 0)}. Its first element is not an integer, string index, but ${typeof e[0]}, equal to: ${JSON.stringify(e[0], null, 4)}.`);
+            i[a][0] = +i[a][0];
+        }
+        if (!Number.isInteger(e[1])) {
+            if (!Number.isInteger(+e[1]) || +e[1] < 0) throw new TypeError(`ranges-apply: [THROW_ID_07] ranges array, second input arg. has ${a}th element, array ${JSON.stringify(e, null, 0)}. Its second element is not an integer, string index, but ${typeof e[1]}, equal to: ${JSON.stringify(e[1], null, 4)}.`);
+            i[a][1] = +i[a][1];
+        }
+        c2 += 1;
+    });
+    let o = b(i, {
+        progressFn: (e)=>{
+            r && (t = 10 + Math.floor(e / 10), t !== p2 && (p2 = t, r(t)));
+        }
+    });
+    invariant(o);
+    let u2 = o.length;
+    if (u2 > 0) {
+        let e = s.slice(o[u2 - 1][1]);
+        s = o.reduce((a, $3, l, y2)=>{
+            r && (t = 20 + Math.floor(l / u2 * 80), t !== p2 && (p2 = t, r(t)));
+            let d3 = l === 0 ? 0 : y2[l - 1][1], g2 = y2[l][0];
+            return `${a}${s.slice(d3, g2)}${y2[l][2] || ""}`;
+        }, ""), s += e;
+    }
+    return s;
+}
+// ../string-collapse-leading-whitespace/dist/string-collapse-leading-whitespace.esm.js
+function D(n, u2 = 1) {
+    let $3 = "\xa0";
+    function g2(e) {
+        return Array.from(e).reverse().join("");
+    }
+    function p2(e, s, o) {
+        let t = o ? `
+` : "\r", i = o ? "\r" : `
+`;
+        if (!e) return e;
+        let m2 = 0, c2 = 0, r = "";
+        for(let l = 0, f2 = e.length; l < f2; l++)(e[l] === t || e[l] === i && e[l - 1] !== t) && c2++, `\r
+`.includes(e[l]) || e[l] === $3 ? (m2 = 0, e[l] === $3 ? r += e[l] : e[l] === t ? c2 <= s && (r += e[l], e[l + 1] === i && (r += e[l + 1], l++)) : e[l] === i && e?.[l - 1] !== t && c2 <= s && (r += e[l])) : (m2++, !e[l + 1] && !c2 && (r += " "));
+        return r;
+    }
+    if (typeof n == "string" && n.length) {
+        let e = 1;
+        typeof +u2 == "number" && Number.isInteger(+u2) && +u2 >= 0 && (e = +u2);
+        let s = "", o = "";
+        if (!n.trim()) s = n;
+        else if (!n[0].trim()) {
+            for(let t = 0, i = n.length; t < i; t++)if (n[t].trim()) {
+                s = n.slice(0, t);
+                break;
+            }
+        }
+        if (n.trim() && (n.slice(-1).trim() === "" || n.slice(-1) === $3)) {
+            for(let t = n.length; t--;)if (n[t].trim()) {
+                o = n.slice(t + 1);
+                break;
+            }
+        }
+        return `${p2(s, e, false)}${n.trim()}${g2(p2(g2(o), e, true))}`;
+    }
+    return n;
+}
+// ../ranges-push/dist/ranges-push.esm.js
+var b2 = {
+    strictlyTwoElementsInRangeArrays: false,
+    progressFn: null
+};
+function h(i, r) {
+    if (!Array.isArray(i) || !i.length) return i;
+    let t = {
+        ...b2,
+        ...r
+    }, e, a;
+    if (t.strictlyTwoElementsInRangeArrays && !i.every((o, g2)=>!Array.isArray(o) || o.length !== 2 ? (e = g2, a = o.length, false) : true)) throw new TypeError(`ranges-sort: [THROW_ID_03] The first argument should be an array and must consist of arrays which are natural number indexes representing TWO string index ranges. However, ${e}th range (${JSON.stringify(i[e], null, 4)}) has not two but ${a} elements!`);
+    if (!i.every((o, g2)=>!Array.isArray(o) || !Number.isInteger(o[0]) || o[0] < 0 || !Number.isInteger(o[1]) || o[1] < 0 ? (e = g2, false) : true)) throw new TypeError(`ranges-sort: [THROW_ID_04] The first argument should be an array and must consist of arrays which are natural number indexes representing string index ranges. However, ${e}th range (${JSON.stringify(i[e], null, 4)}) does not consist of only natural numbers!`);
+    let n = i.length ** 2, l = 0;
+    return Array.from(i).sort((o, g2)=>(t.progressFn && (l += 1, t.progressFn(Math.floor(l * 100 / n))), o[0] === g2[0] ? o[1] < g2[1] ? -1 : o[1] > g2[1] ? 1 : 0 : o[0] < g2[0] ? -1 : 1));
+}
+var y = {
+    mergeType: 1,
+    progressFn: null,
+    joinRangesThatTouchEdges: true
+};
+function f(i, r) {
+    function t(s) {
+        return !!s && typeof s == "object" && !Array.isArray(s);
+    }
+    if (!Array.isArray(i) || !i.length) return null;
+    let e;
+    if (r) {
+        if (t(r)) {
+            if (e = {
+                ...y,
+                ...r
+            }, e.progressFn && t(e.progressFn) && !Object.keys(e.progressFn).length) e.progressFn = null;
+            else if (e.progressFn && typeof e.progressFn != "function") throw new Error(`ranges-merge: [THROW_ID_01] resolvedOpts.progressFn must be a function! It was given of a type: "${typeof e.progressFn}", equal to ${JSON.stringify(e.progressFn, null, 4)}`);
+            if (![
+                1,
+                2,
+                "1",
+                "2"
+            ].includes(e.mergeType)) throw new Error(`ranges-merge: [THROW_ID_02] resolvedOpts.mergeType was customised to a wrong thing! It was given of a type: "${typeof e.mergeType}", equal to ${JSON.stringify(e.mergeType, null, 4)}`);
+            if (typeof e.joinRangesThatTouchEdges != "boolean") throw new Error(`ranges-merge: [THROW_ID_04] resolvedOpts.joinRangesThatTouchEdges was customised to a wrong thing! It was given of a type: "${typeof e.joinRangesThatTouchEdges}", equal to ${JSON.stringify(e.joinRangesThatTouchEdges, null, 4)}`);
+        } else throw new Error(`emlint: [THROW_ID_03] the second input argument must be a plain object. It was given as:
+${JSON.stringify(r, null, 4)} (type ${typeof r})`);
+    } else e = {
+        ...y
+    };
+    let a = i.filter((s)=>Array.isArray(s)).map((s)=>[
+            ...s
+        ]).filter((s)=>s[2] !== void 0 || s[0] !== s[1]), n, l, o;
+    e.progressFn ? n = h(a, {
+        progressFn: (s)=>{
+            o = Math.floor(s / 5), o !== l && (l = o, e.progressFn(o));
+        }
+    }) : n = h(a);
+    let g2 = n.length - 1;
+    for(let s = g2; s > 0; s--)e.progressFn && (o = Math.floor((1 - s / g2) * 78) + 21, o !== l && o > l && (l = o, e.progressFn(o))), (n[s][0] <= n[s - 1][0] || !e.joinRangesThatTouchEdges && n[s][0] < n[s - 1][1] || e.joinRangesThatTouchEdges && n[s][0] <= n[s - 1][1]) && (n[s - 1][0] = Math.min(n[s][0], n[s - 1][0]), n[s - 1][1] = Math.max(n[s][1], n[s - 1][1]), n[s][2] !== void 0 && (n[s - 1][0] >= n[s][0] || n[s - 1][1] <= n[s][1]) && n[s - 1][2] !== null && (n[s][2] === null && n[s - 1][2] !== null ? n[s - 1][2] = null : n[s - 1][2] != null ? +e.mergeType == 2 && n[s - 1][0] === n[s][0] ? n[s - 1][2] = n[s][2] : n[s - 1][2] += n[s][2] : n[s - 1][2] = n[s][2]), n.splice(s, 1), s = n.length);
+    return n.length ? n : null;
+}
+function u(i) {
+    return i != null;
+}
+function p(i) {
+    return Number.isInteger(i) && i >= 0;
+}
+function m(i) {
+    return typeof i == "string";
+}
+var T = {
+    limitToBeAddedWhitespace: false,
+    limitLinebreaksCount: 1,
+    mergeType: 1
+};
+var $ = class {
+    constructor(r){
+        let t = {
+            ...T,
+            ...r
+        };
+        if (t.mergeType && t.mergeType !== 1 && t.mergeType !== 2) {
+            if (m(t.mergeType) && t.mergeType.trim() === "1") t.mergeType = 1;
+            else if (m(t.mergeType) && t.mergeType.trim() === "2") t.mergeType = 2;
+            else throw new Error(`ranges-push: [THROW_ID_02] opts.mergeType was customised to a wrong thing! It was given of a type: "${typeof t.mergeType}", equal to ${JSON.stringify(t.mergeType, null, 4)}`);
+        }
+        this.opts = t, this.ranges = [];
+    }
+    ranges;
+    opts;
+    add(r, t, e) {
+        if (r == null && t == null) return;
+        if (u(r) && !u(t)) {
+            if (Array.isArray(r)) {
+                if (r.length) {
+                    if (r.some((l)=>Array.isArray(l))) {
+                        r.forEach((l)=>{
+                            Array.isArray(l) && this.add(...l);
+                        });
+                        return;
+                    }
+                    r.length && p(+r[0]) && p(+r[1]) && this.add(...r);
+                }
+                return;
+            }
+            throw new TypeError(`ranges-push/Ranges/add(): [THROW_ID_12] the first input argument, "from" is set (${JSON.stringify(r, null, 0)}) but second-one, "to" is not (${JSON.stringify(t, null, 0)})`);
+        } else if (!u(r) && u(t)) throw new TypeError(`ranges-push/Ranges/add(): [THROW_ID_13] the second input argument, "to" is set (${JSON.stringify(t, null, 0)}) but first-one, "from" is not (${JSON.stringify(r, null, 0)})`);
+        let a = +r, n = +t;
+        if (p(e) && (e = String(e)), p(a) && p(n)) {
+            if (u(e) && !m(e) && !p(e)) throw new TypeError(`ranges-push/Ranges/add(): [THROW_ID_08] The third argument, the value to add, was given not as string but ${typeof e}, equal to:
+${JSON.stringify(e, null, 4)}`);
+            if (u(this.ranges) && Array.isArray(this.last()) && a === this.last()[1]) {
+                if (this.last()[1] = n, this.last()[2], this.last()[2] !== null && u(e)) {
+                    let l = this.last()[2] && this.last()[2].length && (!this.opts?.mergeType || this.opts.mergeType === 1) ? `${this.last()[2]}${e}` : e;
+                    this.opts.limitToBeAddedWhitespace && (l = D(l, this.opts.limitLinebreaksCount)), m(l) && !l.length || (this.last()[2] = l);
+                }
+            } else {
+                this.ranges || (this.ranges = []);
+                let l = e !== void 0 && !(m(e) && !e.length) ? [
+                    a,
+                    n,
+                    e && this.opts.limitToBeAddedWhitespace ? D(e, this.opts.limitLinebreaksCount) : e
+                ] : [
+                    a,
+                    n
+                ];
+                this.ranges.push(l);
+            }
+        } else throw p(a) && a >= 0 ? new TypeError(`ranges-push/Ranges/add(): [THROW_ID_10] "to" value, the second input argument, must be a natural number or zero! Currently it's of a type "${typeof n}" equal to: ${JSON.stringify(n, null, 4)}`) : new TypeError(`ranges-push/Ranges/add(): [THROW_ID_09] "from" value, the first input argument, must be a natural number or zero! Currently it's of a type "${typeof a}" equal to: ${JSON.stringify(a, null, 4)}`);
+    }
+    push(r, t, e) {
+        this.add(r, t, e);
+    }
+    current() {
+        return Array.isArray(this.ranges) && this.ranges.length ? (this.ranges = f(this.ranges, {
+            mergeType: this.opts.mergeType
+        }), this.ranges && this.opts.limitToBeAddedWhitespace ? this.ranges.map((r)=>u(r[2]) ? [
+                r[0],
+                r[1],
+                D(r[2], this.opts.limitLinebreaksCount)
+            ] : r) : this.ranges) : null;
+    }
+    wipe() {
+        this.ranges = [];
+    }
+    replace(r) {
+        if (Array.isArray(r) && r.length) {
+            if (Array.isArray(r[0]) && p(r[0][0])) this.ranges = Array.from(r);
+            else throw new Error(`ranges-push/Ranges/replace(): [THROW_ID_11] Single range was given but we expected array of arrays! The first element, ${JSON.stringify(r[0], null, 4)} should be an array and its first element should be an integer, a string index.`);
+        } else this.ranges = [];
+    }
+    last() {
+        return Array.isArray(this.ranges) && this.ranges.length ? this.ranges[this.ranges.length - 1] : null;
+    }
+};
+// ../string-left-right/dist/string-left-right.esm.js
+var import_lodash = __toESM(require_lodash3(), 1);
+var c = "\xa0";
+function D2({ str: n , idx: e = 0 , stopAtNewlines: l = false , stopAtRawNbsp: u2 = false  }) {
+    if (typeof n != "string" || !n.length || ((!e || typeof e != "number") && (e = 0), !n[e + 1])) return null;
+    if (n[e + 1] && (n[e + 1].trim() || l && `
+\r`.includes(n[e + 1]) || u2 && n[e + 1] === c)) return e + 1;
+    if (n[e + 2] && (n[e + 2].trim() || l && `
+\r`.includes(n[e + 2]) || u2 && n[e + 2] === c)) return e + 2;
+    for(let t = e + 1, m2 = n.length; t < m2; t++)if (n[t].trim() || l && `
+\r`.includes(n[t]) || u2 && n[t] === c) return t;
+    return null;
+}
+function E(n, e = 0) {
+    return D2({
+        str: n,
+        idx: e,
+        stopAtNewlines: false,
+        stopAtRawNbsp: false
+    });
+}
+// src/util.ts
+function characterSuitableForNames(char) {
+    return /[-_A-Za-z0-9]/.test(char);
+}
+function prepHopefullyAnArray(something, name) {
+    if (!something) return [];
+    if (Array.isArray(something)) return something.filter((val)=>typeof val === "string" && val.trim());
+    if (typeof something === "string") return something.trim() ? [
+        something
+    ] : [];
+    throw new TypeError(`string-strip-html/stripHtml(): [THROW_ID_05] ${name} must be array containing zero or more strings or something falsey. Currently it's equal to: ${something}, that a type of ${typeof something}.`);
+}
+function xBeforeYOnTheRight(str, startingIdx, x, y2) {
+    for(let i = startingIdx, len = str.length; i < len; i++){
+        if (str.startsWith(x, i)) return true;
+        if (str.startsWith(y2, i)) return false;
+    }
+    return false;
+}
+function notWithinAttrQuotes(tag, str, i) {
+    return !tag || !tag.quotes || !xBeforeYOnTheRight(str, i + 1, tag.quotes.value, ">");
+}
+var definitelyTagNames = /* @__PURE__ */ new Set([
+    "!doctype",
+    "abbr",
+    "address",
+    "area",
+    "article",
+    "aside",
+    "audio",
+    "base",
+    "bdi",
+    "bdo",
+    "blockquote",
+    "body",
+    "br",
+    "button",
+    "canvas",
+    "caption",
+    "cite",
+    "code",
+    "col",
+    "colgroup",
+    "data",
+    "datalist",
+    "dd",
+    "del",
+    "details",
+    "dfn",
+    "dialog",
+    "div",
+    "dl",
+    "doctype",
+    "dt",
+    "em",
+    "embed",
+    "fieldset",
+    "figcaption",
+    "figure",
+    "footer",
+    "form",
+    "h1",
+    "h2",
+    "h3",
+    "h4",
+    "h5",
+    "h6",
+    "head",
+    "header",
+    "hgroup",
+    "hr",
+    "html",
+    "iframe",
+    "img",
+    "input",
+    "ins",
+    "kbd",
+    "keygen",
+    "label",
+    "legend",
+    "li",
+    "link",
+    "main",
+    "map",
+    "mark",
+    "math",
+    "menu",
+    "menuitem",
+    "meta",
+    "meter",
+    "nav",
+    "noscript",
+    "object",
+    "ol",
+    "optgroup",
+    "option",
+    "output",
+    "param",
+    "picture",
+    "pre",
+    "progress",
+    "rb",
+    "rp",
+    "rt",
+    "rtc",
+    "ruby",
+    "samp",
+    "script",
+    "section",
+    "select",
+    "slot",
+    "small",
+    "source",
+    "span",
+    "strong",
+    "style",
+    "sub",
+    "summary",
+    "sup",
+    "svg",
+    "table",
+    "tbody",
+    "td",
+    "template",
+    "textarea",
+    "tfoot",
+    "th",
+    "thead",
+    "time",
+    "title",
+    "tr",
+    "track",
+    "ul",
+    "var",
+    "video",
+    "wbr",
+    "xml"
+]);
+var singleLetterTags = /* @__PURE__ */ new Set([
+    "a",
+    "b",
+    "i",
+    "p",
+    "q",
+    "s",
+    "u"
+]);
+var punctuationTrailing = /* @__PURE__ */ new Set([
+    `.`,
+    `,`,
+    `;`,
+    `!`,
+    `?`
+]);
+var punctuation = /* @__PURE__ */ new Set([
+    ".",
+    ",",
+    "?",
+    ";",
+    ")",
+    "…",
+    '"',
+    "\xbb"
+]);
+var inlineTags = /* @__PURE__ */ new Set([
+    "a",
+    "abbr",
+    "acronym",
+    "audio",
+    "b",
+    "bdi",
+    "bdo",
+    "big",
+    "button",
+    "canvas",
+    "cite",
+    "code",
+    "data",
+    "datalist",
+    "del",
+    "dfn",
+    "em",
+    "embed",
+    "i",
+    "iframe",
+    "input",
+    "ins",
+    "kbd",
+    "label",
+    "map",
+    "mark",
+    "meter",
+    "noscript",
+    "object",
+    "output",
+    "picture",
+    "progress",
+    "q",
+    "ruby",
+    "s",
+    "samp",
+    "select",
+    "slot",
+    "small",
+    "span",
+    "strong",
+    "sub",
+    "sup",
+    "svg",
+    "template",
+    "textarea",
+    "time",
+    "u",
+    "tt",
+    "var",
+    "video",
+    "wbr"
+]);
+// package.json
+var version = "8.4.0";
+// src/main.ts
+var version2 = version;
+var defaults = {
+    ignoreTags: [],
+    ignoreTagsWithTheirContents: [],
+    onlyStripTags: [],
+    stripTogetherWithTheirContents: [
+        "script",
+        "style",
+        "xml"
+    ],
+    skipHtmlDecoding: false,
+    trimOnlySpaces: false,
+    stripRecognisedHTMLOnly: false,
+    dumpLinkHrefsNearby: {
+        enabled: false,
+        putOnNewLine: false,
+        wrapHeads: "",
+        wrapTails: ""
+    },
+    cb: null,
+    reportProgressFunc: null,
+    reportProgressFuncFrom: 0,
+    reportProgressFuncTo: 100
+};
+function stripHtml(str, opts) {
+    let start = Date.now();
+    let rangedOpeningTagsForDeletion = [];
+    let rangedOpeningTagsForIgnoring = [];
+    let allTagLocations = [];
+    let filteredTagLocations = [];
+    let tag = {};
+    function resetTag() {
+        tag = {
+            attributes: []
+        };
+    }
+    resetTag();
+    let chunkOfWhitespaceStartsAt = null;
+    let chunkOfSpacesStartsAt = null;
+    let lastLFCRAt = null;
+    let nonWhitespaceCharMetSinceLastLFCR = false;
+    let attrObj = {};
+    let hrefDump = {
+        tagName: "",
+        hrefValue: "",
+        openingTagEnds: void 0
+    };
+    let stringToInsertAfter = "";
+    let hrefInsertionActive = false;
+    let spacesChunkWhichFollowsTheClosingBracketEndsAt = null;
+    let strip = true;
+    function treatRangedTags(i, resolvedOpts2, rangesToDelete2) {
+        if (Array.isArray(resolvedOpts2.stripTogetherWithTheirContents) && (resolvedOpts2.stripTogetherWithTheirContents.includes(tag.name) || resolvedOpts2.stripTogetherWithTheirContents.includes("*"))) {
+            if (tag.slashPresent && Array.isArray(rangedOpeningTagsForDeletion) && rangedOpeningTagsForDeletion.some((obj)=>obj.name === tag.name)) {
+                for(let y2 = rangedOpeningTagsForDeletion.length; y2--;)if (rangedOpeningTagsForDeletion[y2].name === tag.name) {
+                    filteredTagLocations = filteredTagLocations.filter(([from, upto])=>(from < rangedOpeningTagsForDeletion[y2].lastOpeningBracketAt || from >= i + 1) && (upto <= rangedOpeningTagsForDeletion[y2].lastOpeningBracketAt || upto > i + 1));
+                    let endingIdx = i + 1;
+                    if (tag.lastClosingBracketAt) endingIdx = tag.lastClosingBracketAt + 1;
+                    filteredTagLocations.push([
+                        rangedOpeningTagsForDeletion[y2].lastOpeningBracketAt,
+                        endingIdx
+                    ]);
+                    if (punctuation.has(str[i]) && resolvedOpts2.cb) resolvedOpts2.cb({
+                        tag,
+                        deleteFrom: rangedOpeningTagsForDeletion[y2].lastOpeningBracketAt,
+                        deleteTo: i + 1,
+                        insert: null,
+                        rangesArr: rangesToDelete2,
+                        proposedReturn: [
+                            rangedOpeningTagsForDeletion[y2].lastOpeningBracketAt,
+                            i,
+                            null
+                        ]
+                    });
+                    else if (resolvedOpts2.cb) resolvedOpts2.cb({
+                        tag,
+                        deleteFrom: rangedOpeningTagsForDeletion[y2].lastOpeningBracketAt,
+                        deleteTo: i,
+                        insert: "",
+                        rangesArr: rangesToDelete2,
+                        proposedReturn: [
+                            rangedOpeningTagsForDeletion[y2].lastOpeningBracketAt,
+                            i,
+                            ""
+                        ]
+                    });
+                    rangedOpeningTagsForDeletion.splice(y2, 1);
+                    break;
+                }
+            } else if (!tag.slashPresent) rangedOpeningTagsForDeletion.push(tag);
+        } else if (Array.isArray(resolvedOpts2.ignoreTagsWithTheirContents) && checkIgnoreTagsWithTheirContents(i, resolvedOpts2, tag)) strip = false;
+    }
+    function calculateWhitespaceToInsert(str2, currCharIdx, fromIdx, toIdx, lastOpeningBracketAt, lastClosingBracketAt) {
+        if (Array.isArray(rangesToDelete.current()) && typeof fromIdx === "number" && rangesToDelete.current()[0][0] === 0 && rangesToDelete.current()[0][1] >= fromIdx) return "";
+        if (str.length === toIdx && lastClosingBracketAt && (!resolvedOpts.dumpLinkHrefsNearby || !resolvedOpts.dumpLinkHrefsNearby?.enabled)) return null;
+        let strToEvaluateForLineBreaks = "";
+        if (Number.isInteger(fromIdx) && fromIdx < lastOpeningBracketAt) strToEvaluateForLineBreaks += str2.slice(fromIdx, lastOpeningBracketAt);
+        if (Number.isInteger(toIdx) && toIdx > lastClosingBracketAt + 1) {
+            let temp = str2.slice(lastClosingBracketAt + 1, toIdx);
+            if (toIdx && !E(str, toIdx - 1)) temp = temp.trimEnd();
+            if (temp.includes("\n") && isOpeningAt(toIdx, str2)) strToEvaluateForLineBreaks += " ";
+            else strToEvaluateForLineBreaks += temp;
+        }
+        let R0 = !punctuation.has(str2[currCharIdx]);
+        let R1 = str2[toIdx - 1] !== ">" || !str2[fromIdx].trim();
+        let R2 = ![
+            `"`,
+            `(`
+        ].includes(str2[lastOpeningBracketAt - 1]);
+        let R3 = ![
+            ";",
+            ".",
+            ":",
+            "!"
+        ].includes(str2[currCharIdx]);
+        if ((R0 || R1 && R2 && R3) && (R1 || R2) && str2[currCharIdx] !== "!" && (!inlineTags.has(tag.name) || typeof fromIdx === "number" && fromIdx < lastOpeningBracketAt || typeof toIdx === "number" && toIdx > lastClosingBracketAt + 1)) {
+            let foundLineBreaks = strToEvaluateForLineBreaks.match(/\n/g);
+            if (Array.isArray(foundLineBreaks) && foundLineBreaks.length) {
+                if (foundLineBreaks.length === 1) return "\n";
+                if (foundLineBreaks.length === 2) return "\n\n";
+                return "\n\n\n";
+            }
+            return " ";
+        }
+        return "";
+    }
+    function calculateHrefToBeInserted(resolvedOpts2, toIdx) {
+        if (resolvedOpts2.dumpLinkHrefsNearby?.enabled && hrefDump.tagName && hrefDump.tagName === tag.name && tag.lastOpeningBracketAt && (hrefDump.openingTagEnds && tag.lastOpeningBracketAt > hrefDump.openingTagEnds || !hrefDump.openingTagEnds)) hrefInsertionActive = true;
+        if (hrefInsertionActive) {
+            let lineBreaks = resolvedOpts2.dumpLinkHrefsNearby?.putOnNewLine ? "\n\n" : "";
+            stringToInsertAfter = `${lineBreaks}${hrefDump.hrefValue}`;
+            if (typeof toIdx !== "number" || E(str, toIdx - 1)) stringToInsertAfter += lineBreaks;
+        }
+    }
+    function isOpeningAt(i, customStr) {
+        if (customStr) return customStr[i] === "<" && customStr[i + 1] !== "%";
+        return str[i] === "<" && str[i + 1] !== "%";
+    }
+    function isClosingAt(i) {
+        return str[i] === ">" && str[i - 1] !== "%";
+    }
+    function checkIgnoreTagsWithTheirContents(i, resolvedOpts2, tag2) {
+        if (resolvedOpts2.ignoreTagsWithTheirContents.includes("*")) return true;
+        let nextOpeningPos = str.indexOf(`<${tag2.name}`, i);
+        let nextClosingPos = str.indexOf(`</${tag2.name}`, i);
+        if (!tag2.slashPresent && nextClosingPos === -1 || tag2.slashPresent && !rangedOpeningTagsForIgnoring.some((tagObj)=>tagObj.name === tag2.name) || nextClosingPos > -1 && nextOpeningPos > -1 && nextOpeningPos < nextClosingPos) return false;
+        return resolvedOpts2.ignoreTagsWithTheirContents.includes(tag2.name);
+    }
+    if (typeof str !== "string") throw new TypeError(`string-strip-html/stripHtml(): [THROW_ID_01] Input must be string! Currently it's: ${(typeof str).toLowerCase()}, equal to:
+${JSON.stringify(str, null, 4)}`);
+    if (opts) {
+        if (!O(opts)) throw new TypeError(`string-strip-html/stripHtml(): [THROW_ID_02] Optional Options Object must be a plain object! Currently it's: ${(typeof opts).toLowerCase()}, equal to:
+${JSON.stringify(opts, null, 4)}`);
+        else {
+            if (opts.reportProgressFunc && typeof opts.reportProgressFunc !== "function") throw new Error(`string-strip-html/stripHtml(): [THROW_ID_03] The Optional Options Object's key reportProgressFunc, callback function, should be a function but it was given as type ${typeof opts.reportProgressFunc}, equal to ${JSON.stringify(opts.reportProgressFunc, null, 4)}`);
+            if (typeof opts.dumpLinkHrefsNearby === "boolean" && opts.dumpLinkHrefsNearby != null) throw new Error(`string-strip-html/stripHtml(): [THROW_ID_04] The Optional Options Object's key should be a plain object but it was given as type ${typeof opts.dumpLinkHrefsNearby}, equal to ${JSON.stringify(opts.dumpLinkHrefsNearby, null, 4)}`);
+        }
+    }
+    function resetHrefMarkers() {
+        if (hrefInsertionActive) {
+            hrefDump = {
+                tagName: "",
+                hrefValue: "",
+                openingTagEnds: void 0
+            };
+            hrefInsertionActive = false;
+        }
+    }
+    let resolvedOpts = {
+        ...defaults,
+        ...opts,
+        dumpLinkHrefsNearby: {
+            ...defaults.dumpLinkHrefsNearby,
+            ...opts?.dumpLinkHrefsNearby
+        }
+    };
+    if (Object.prototype.hasOwnProperty.call(resolvedOpts, "returnRangesOnly")) throw new TypeError(`string-strip-html/stripHtml(): [THROW_ID_05] The Optional Options Object's key returnRangesOnly has been removed from the API since v.5 release.`);
+    if (resolvedOpts.reportProgressFunc) {
+        if (typeof resolvedOpts.reportProgressFuncFrom !== "number") throw new Error(`string-strip-html/stripHtml(): [THROW_ID_06] The Optional Options Object's key reportProgressFuncFrom, callback function's "from" range, should be a number but it was given as type ${typeof resolvedOpts.reportProgressFuncFrom}, equal to ${JSON.stringify(resolvedOpts.reportProgressFuncFrom, null, 4)}`);
+        if (typeof resolvedOpts.reportProgressFuncTo !== "number") throw new Error(`string-strip-html/stripHtml(): [THROW_ID_07] The Optional Options Object's key reportProgressFuncTo, callback function's "to" range, should be a number but it was given as type ${typeof resolvedOpts.reportProgressFuncTo}, equal to ${JSON.stringify(resolvedOpts.reportProgressFuncTo, null, 4)}`);
+    }
+    resolvedOpts.ignoreTags = prepHopefullyAnArray(resolvedOpts.ignoreTags, "resolvedOpts.ignoreTags");
+    resolvedOpts.onlyStripTags = prepHopefullyAnArray(resolvedOpts.onlyStripTags, "resolvedOpts.onlyStripTags");
+    let onlyStripTagsMode = !!resolvedOpts.onlyStripTags.length;
+    if (resolvedOpts.onlyStripTags.length && resolvedOpts.ignoreTags.length) resolvedOpts.onlyStripTags = (0, import_lodash3.default)(resolvedOpts.onlyStripTags, ...resolvedOpts.ignoreTags);
+    if (!resolvedOpts.stripTogetherWithTheirContents) resolvedOpts.stripTogetherWithTheirContents = [];
+    else if (typeof resolvedOpts.stripTogetherWithTheirContents === "string" && resolvedOpts.stripTogetherWithTheirContents.length) resolvedOpts.stripTogetherWithTheirContents = [
+        resolvedOpts.stripTogetherWithTheirContents
+    ];
+    let somethingCaught = {};
+    if (resolvedOpts.stripTogetherWithTheirContents && Array.isArray(resolvedOpts.stripTogetherWithTheirContents) && resolvedOpts.stripTogetherWithTheirContents.length && !resolvedOpts.stripTogetherWithTheirContents.every((el, i)=>{
+        if (!(typeof el === "string")) {
+            somethingCaught.el = el;
+            somethingCaught.i = i;
+            return false;
+        }
+        return true;
+    })) throw new TypeError(`string-strip-html/stripHtml(): [THROW_ID_08] Optional Options Object's key stripTogetherWithTheirContents was set to contain not just string elements! For example, element at index ${somethingCaught.i} has a value ${somethingCaught.el} which is not string but ${(typeof somethingCaught.el).toLowerCase()}.`);
+    if (!resolvedOpts.cb) resolvedOpts.cb = ({ rangesArr , proposedReturn  })=>{
+        if (proposedReturn) rangesArr.push(...proposedReturn);
+    };
+    let rangesToDelete = new $({
+        limitToBeAddedWhitespace: true,
+        limitLinebreaksCount: 2
+    });
+    if (!resolvedOpts.skipHtmlDecoding) while(str !== (0, import_html_entities.decode)(str, {
+        scope: "strict"
+    }))str = (0, import_html_entities.decode)(str, {
+        scope: "strict"
+    });
+    let isInsideScript = false;
+    let isDoctype = false;
+    let currentPercentageDone = 0;
+    let lastPercentage = 0;
+    let len = str.length;
+    let midLen = Math.floor(len / 2);
+    for(let i = 0; i < len; i++){
+        if (resolvedOpts.reportProgressFunc) {
+            if (len > 1e3 && len < 2e3) {
+                if (i === midLen) resolvedOpts.reportProgressFunc(Math.floor((resolvedOpts.reportProgressFuncTo - resolvedOpts.reportProgressFuncFrom) / 2));
+            } else if (len >= 2e3) {
+                currentPercentageDone = resolvedOpts.reportProgressFuncFrom + Math.floor(i / len * (resolvedOpts.reportProgressFuncTo - resolvedOpts.reportProgressFuncFrom));
+                if (currentPercentageDone !== lastPercentage) {
+                    lastPercentage = currentPercentageDone;
+                    resolvedOpts.reportProgressFunc(currentPercentageDone);
+                }
+            }
+        }
+        if (Object.keys(tag).length > 1 && tag.lastClosingBracketAt && tag.lastClosingBracketAt < i && str[i] !== " " && spacesChunkWhichFollowsTheClosingBracketEndsAt === null) spacesChunkWhichFollowsTheClosingBracketEndsAt = i;
+        if (!isInsideScript && str[i] === "%" && str[i - 1] === "{" && str.includes("%}", i + 1)) {
+            lastLFCRAt = null;
+            let newPosition = str.indexOf("%}", i) - 1;
+            if (newPosition > i) {
+                i = newPosition;
+                continue;
+            }
+        }
+        if (!isInsideScript && isClosingAt(i)) {
+            if ((!tag || Object.keys(tag).length < 2) && i > 1) {
+                for(let y2 = i; y2--;)if (str[y2 - 1] === void 0 || isClosingAt(y2)) {
+                    let startingPoint = str[y2 - 1] === void 0 ? y2 : y2 + 1;
+                    let culprit = str.slice(startingPoint, i + 1);
+                    if (str !== `<${(0, import_lodash2.default)(culprit.trim(), "/>")}>` && [
+                        ...definitelyTagNames
+                    ].some((val)=>(0, import_lodash2.default)(culprit.trim().split(/\s+/).filter((val2)=>val2.trim()).filter((_val3, i3)=>i3 === 0), "/>").toLowerCase() === val) && stripHtml(`<${culprit.trim()}>`, resolvedOpts).result === "") {
+                        if (!allTagLocations.length || allTagLocations[allTagLocations.length - 1][0] !== tag.lastOpeningBracketAt) allTagLocations.push([
+                            startingPoint,
+                            i + 1
+                        ]);
+                        if (!filteredTagLocations.length || filteredTagLocations[filteredTagLocations.length - 1][0] !== tag.lastOpeningBracketAt) filteredTagLocations.push([
+                            startingPoint,
+                            i + 1
+                        ]);
+                        let whiteSpaceCompensation = calculateWhitespaceToInsert(str, i, startingPoint, i + 1, startingPoint, i + 1);
+                        let deleteUpTo = i + 1;
+                        if (str[deleteUpTo] && !str[deleteUpTo].trim()) {
+                            for(let z = deleteUpTo; z < len; z++)if (str[z].trim()) {
+                                deleteUpTo = z;
+                                break;
+                            }
+                        }
+                        resolvedOpts.cb({
+                            tag,
+                            deleteFrom: startingPoint,
+                            deleteTo: deleteUpTo,
+                            insert: whiteSpaceCompensation,
+                            rangesArr: rangesToDelete,
+                            proposedReturn: [
+                                startingPoint,
+                                deleteUpTo,
+                                whiteSpaceCompensation
+                            ]
+                        });
+                    }
+                    break;
+                }
+            }
+        }
+        if (!isDoctype && str[i] === "/" && !tag.quotes?.value && Number.isInteger(tag.lastOpeningBracketAt) && !Number.isInteger(tag.lastClosingBracketAt)) tag.slashPresent = i;
+        if (str[i] === '"' || str[i] === "'") {
+            if (!isDoctype && tag.nameStarts && tag.quotes && tag.quotes.value && tag.quotes.value === str[i]) {
+                attrObj.valueEnds = i;
+                attrObj.value = str.slice(attrObj.valueStarts, i);
+                tag.attributes.push(attrObj);
+                attrObj = {};
+                delete tag.quotes;
+                let hrefVal;
+                if (resolvedOpts.dumpLinkHrefsNearby?.enabled && !rangedOpeningTagsForDeletion.length && tag.attributes.some((obj)=>{
+                    if (typeof obj.name === "string" && obj.name.toLowerCase() === "href") {
+                        hrefVal = `${resolvedOpts.dumpLinkHrefsNearby?.wrapHeads || ""}${obj.value}${resolvedOpts.dumpLinkHrefsNearby?.wrapTails || ""}`;
+                        return true;
+                    }
+                })) hrefDump = {
+                    tagName: tag.name,
+                    hrefValue: hrefVal,
+                    openingTagEnds: void 0
+                };
+            } else if (!isDoctype && !tag.quotes && tag.nameStarts) {
+                tag.quotes = {};
+                tag.quotes.value = str[i];
+                tag.quotes.start = i;
+                if (attrObj.nameStarts && attrObj.nameEnds && attrObj.nameEnds < i && attrObj.nameStarts < i && !attrObj.valueStarts) attrObj.name = str.slice(attrObj.nameStarts, attrObj.nameEnds);
+            }
+        }
+        if (tag.nameStarts !== void 0 && tag.nameEnds === void 0 && (!str[i].trim() || !characterSuitableForNames(str[i]))) {
+            tag.nameEnds = i;
+            tag.name = str.slice(tag.nameStarts, tag.nameEnds + (!isClosingAt(i) && str[i] !== "/" && str[i + 1] === void 0 ? 1 : 0));
+            if (str[tag.nameStarts - 1] !== "!" && !tag.name.replace(/-/g, "").length || /^\d+$/.test(tag.name[0])) {
+                tag = {};
+                continue;
+            }
+            if (typeof tag.name === "string" && tag.name.toLowerCase() === "doctype") isDoctype = true;
+            if (isOpeningAt(i)) {
+                calculateHrefToBeInserted(resolvedOpts);
+                let whiteSpaceCompensation = calculateWhitespaceToInsert(str, i, tag.leftOuterWhitespace, i, tag.lastOpeningBracketAt, i);
+                if (resolvedOpts.stripTogetherWithTheirContents.includes(tag.name) || resolvedOpts.stripTogetherWithTheirContents.includes("*")) filteredTagLocations = filteredTagLocations.filter(([from, upto])=>!(from === tag.leftOuterWhitespace && upto === i));
+                resolvedOpts.cb({
+                    tag,
+                    deleteFrom: tag.leftOuterWhitespace,
+                    deleteTo: i,
+                    insert: `${whiteSpaceCompensation}${stringToInsertAfter}${whiteSpaceCompensation}`,
+                    rangesArr: rangesToDelete,
+                    proposedReturn: [
+                        tag.leftOuterWhitespace,
+                        i,
+                        `${whiteSpaceCompensation}${stringToInsertAfter}${whiteSpaceCompensation}`
+                    ]
+                });
+                resetHrefMarkers();
+                treatRangedTags(i, resolvedOpts, rangesToDelete);
+            }
+        }
+        if (tag.quotes?.start && tag.quotes.start < i && !tag.quotes.end && attrObj.nameEnds && attrObj.equalsAt && !attrObj.valueStarts) attrObj.valueStarts = i;
+        if (!tag.quotes && attrObj.nameEnds && str[i] === "=" && !attrObj.valueStarts && !attrObj.equalsAt) attrObj.equalsAt = i;
+        if (!tag.quotes && attrObj.nameStarts && attrObj.nameEnds && !attrObj.valueStarts && str[i].trim() && str[i] !== "=") {
+            tag.attributes.push(attrObj);
+            attrObj = {};
+        }
+        if (!tag.quotes && attrObj.nameStarts && !attrObj.nameEnds) {
+            if (isDoctype && `'"`.includes(str[attrObj.nameStarts])) {
+                if (attrObj.nameStarts < i && str[i] === str[attrObj.nameStarts]) {
+                    attrObj.nameEnds = i + 1;
+                    attrObj.name = str.slice(attrObj.nameStarts, attrObj.nameEnds);
+                }
+            } else if (!str[i].trim()) {
+                attrObj.nameEnds = i;
+                attrObj.name = str.slice(attrObj.nameStarts, attrObj.nameEnds);
+            } else if (str[i] === "=") {
+                if (!attrObj.equalsAt) {
+                    attrObj.nameEnds = i;
+                    attrObj.equalsAt = i;
+                    attrObj.name = str.slice(attrObj.nameStarts, attrObj.nameEnds);
+                }
+            } else if (str[i] === "/" || isClosingAt(i)) {
+                attrObj.nameEnds = i;
+                attrObj.name = str.slice(attrObj.nameStarts, attrObj.nameEnds);
+                tag.attributes.push(attrObj);
+                attrObj = {};
+            } else if (isOpeningAt(i)) {
+                attrObj.nameEnds = i;
+                attrObj.name = str.slice(attrObj.nameStarts, attrObj.nameEnds);
+                tag.attributes.push(attrObj);
+                attrObj = {};
+            }
+        }
+        if (!tag.quotes && tag.nameEnds < i && !str[i - 1].trim() && str[i].trim() && !`<>/!`.includes(str[i]) && !attrObj.nameStarts && !tag.lastClosingBracketAt) attrObj.nameStarts = i;
+        if (tag.lastOpeningBracketAt !== null && tag.lastOpeningBracketAt < i && str[i] === "/" && tag.onlyPlausible) tag.onlyPlausible = false;
+        if (tag.lastOpeningBracketAt !== null && tag.lastOpeningBracketAt < i && str[i] !== "/") {
+            if (tag.onlyPlausible === void 0) {
+                if ((!str[i].trim() || isOpeningAt(i)) && !tag.slashPresent) tag.onlyPlausible = true;
+                else tag.onlyPlausible = false;
+            }
+            if (str[i].trim() && tag.nameStarts === void 0 && !isOpeningAt(i) && str[i] !== "/" && !isClosingAt(i) && str[i] !== "!") {
+                tag.nameStarts = i;
+                tag.nameContainsLetters = false;
+            }
+        }
+        if (tag.nameStarts && !tag.quotes && typeof str[i] === "string" && str[i].toLowerCase() !== str[i].toUpperCase()) tag.nameContainsLetters = true;
+        if (isClosingAt(i) && notWithinAttrQuotes(tag, str, i)) {
+            let itIsClosing = true;
+            if (itIsClosing && tag.lastOpeningBracketAt !== void 0) {
+                tag.lastClosingBracketAt = i;
+                spacesChunkWhichFollowsTheClosingBracketEndsAt = null;
+                if (Object.keys(attrObj).length) {
+                    tag.attributes.push(attrObj);
+                    attrObj = {};
+                }
+                if (resolvedOpts.dumpLinkHrefsNearby?.enabled && hrefDump.tagName && !hrefDump.openingTagEnds) hrefDump.openingTagEnds = i;
+            }
+        }
+        if ((!isDoctype || str[i] === ">") && tag.lastOpeningBracketAt !== void 0) {
+            if (tag.lastClosingBracketAt === void 0) {
+                if (tag.lastOpeningBracketAt < i && !isOpeningAt(i) && (str[i + 1] === void 0 || isOpeningAt(i + 1)) && tag.nameContainsLetters && typeof tag.nameStarts === "number") {
+                    tag.name = str.slice(tag.nameStarts, tag.nameEnds || i + 1).toLowerCase();
+                    if (!allTagLocations.length || allTagLocations[allTagLocations.length - 1][0] !== tag.lastOpeningBracketAt) allTagLocations.push([
+                        tag.lastOpeningBracketAt,
+                        i + 1
+                    ]);
+                    if (resolvedOpts.ignoreTags.includes(tag.name) || checkIgnoreTagsWithTheirContents(i, resolvedOpts, tag) || !definitelyTagNames.has(tag.name) && (tag.onlyPlausible || resolvedOpts.stripRecognisedHTMLOnly)) {
+                        tag = {};
+                        attrObj = {};
+                        continue;
+                    }
+                    if ((definitelyTagNames.has(tag.name) || singleLetterTags.has(tag.name)) && (tag.onlyPlausible === false || tag.onlyPlausible === true && tag.attributes.length) || str[i + 1] === void 0) {
+                        calculateHrefToBeInserted(resolvedOpts);
+                        let whiteSpaceCompensation = calculateWhitespaceToInsert(str, i, tag.leftOuterWhitespace, i + 1, tag.lastOpeningBracketAt, tag.lastClosingBracketAt);
+                        if (isInsideScript && tag.name === "script" && tag.slashPresent) isInsideScript = false;
+                        let insert;
+                        if (whiteSpaceCompensation === null || stringToInsertAfter === null) insert = null;
+                        else insert = `${whiteSpaceCompensation}${stringToInsertAfter}${whiteSpaceCompensation}`;
+                        resolvedOpts.cb({
+                            tag,
+                            deleteFrom: tag.leftOuterWhitespace,
+                            deleteTo: i + 1,
+                            insert,
+                            rangesArr: rangesToDelete,
+                            proposedReturn: [
+                                tag.leftOuterWhitespace,
+                                i + 1,
+                                insert
+                            ]
+                        });
+                        resetHrefMarkers();
+                        treatRangedTags(i, resolvedOpts, rangesToDelete);
+                    }
+                    if (!filteredTagLocations.length || filteredTagLocations[filteredTagLocations.length - 1][0] !== tag.lastOpeningBracketAt && filteredTagLocations[filteredTagLocations.length - 1][1] !== i + 1) {
+                        if (resolvedOpts.stripTogetherWithTheirContents.includes(tag.name) || resolvedOpts.stripTogetherWithTheirContents.includes("*")) {
+                            let lastRangedOpeningTag;
+                            for(let z = rangedOpeningTagsForDeletion.length; z--;)if (rangedOpeningTagsForDeletion[z].name === tag.name) lastRangedOpeningTag = rangedOpeningTagsForDeletion[z];
+                            if (lastRangedOpeningTag) {
+                                filteredTagLocations = filteredTagLocations.filter(([from])=>from !== lastRangedOpeningTag.lastOpeningBracketAt);
+                                filteredTagLocations.push([
+                                    lastRangedOpeningTag.lastOpeningBracketAt,
+                                    i + 1
+                                ]);
+                            } else filteredTagLocations.push([
+                                tag.lastOpeningBracketAt,
+                                i + 1
+                            ]);
+                        } else filteredTagLocations.push([
+                            tag.lastOpeningBracketAt,
+                            i + 1
+                        ]);
+                    }
+                }
+            } else if (i > tag.lastClosingBracketAt && str[i].trim() || str[i + 1] === void 0) {
+                let endingRangeIndex = tag.lastClosingBracketAt === i ? i + 1 : i;
+                if (resolvedOpts.trimOnlySpaces && endingRangeIndex === len - 1 && spacesChunkWhichFollowsTheClosingBracketEndsAt !== null && spacesChunkWhichFollowsTheClosingBracketEndsAt < i) endingRangeIndex = spacesChunkWhichFollowsTheClosingBracketEndsAt;
+                if (!allTagLocations.length || allTagLocations[allTagLocations.length - 1][0] !== tag.lastOpeningBracketAt) allTagLocations.push([
+                    tag.lastOpeningBracketAt,
+                    tag.lastClosingBracketAt + 1
+                ]);
+                let ignoreTags = resolvedOpts.ignoreTags.includes(tag.name);
+                let ignoreTagsWithTheirContents = checkIgnoreTagsWithTheirContents(i, resolvedOpts, tag);
+                if (!strip || resolvedOpts.stripRecognisedHTMLOnly && typeof tag.name === "string" && !definitelyTagNames.has(tag.name.toLowerCase()) && !singleLetterTags.has(tag.name.toLowerCase()) || !onlyStripTagsMode && (ignoreTags || ignoreTagsWithTheirContents) || onlyStripTagsMode && !resolvedOpts.onlyStripTags.includes(tag.name)) {
+                    if (ignoreTagsWithTheirContents) {
+                        if (tag.slashPresent) {
+                            for(let y2 = rangedOpeningTagsForIgnoring.length; y2--;)if (rangedOpeningTagsForIgnoring[y2].name === tag.name) {
+                                rangedOpeningTagsForIgnoring.splice(y2, 1);
+                                break;
+                            }
+                            if (!rangedOpeningTagsForIgnoring.length) strip = true;
+                        } else {
+                            if (strip) strip = false;
+                            rangedOpeningTagsForIgnoring.push(tag);
+                        }
+                    }
+                    resolvedOpts.cb({
+                        tag,
+                        deleteFrom: null,
+                        deleteTo: null,
+                        insert: null,
+                        rangesArr: rangesToDelete,
+                        proposedReturn: null
+                    });
+                    tag = {};
+                    attrObj = {};
+                } else if (!tag.onlyPlausible || tag.attributes.length === 0 && tag.name && (definitelyTagNames.has(tag.name.toLowerCase()) || singleLetterTags.has(tag.name.toLowerCase())) || tag.attributes?.some((attrObj2)=>attrObj2.equalsAt)) {
+                    if (!filteredTagLocations.length || filteredTagLocations[filteredTagLocations.length - 1][0] !== tag.lastOpeningBracketAt) filteredTagLocations.push([
+                        tag.lastOpeningBracketAt,
+                        tag.lastClosingBracketAt + 1
+                    ]);
+                    let whiteSpaceCompensation = calculateWhitespaceToInsert(str, i, tag.leftOuterWhitespace, endingRangeIndex, tag.lastOpeningBracketAt, tag.lastClosingBracketAt);
+                    stringToInsertAfter = "";
+                    hrefInsertionActive = false;
+                    calculateHrefToBeInserted(resolvedOpts, endingRangeIndex);
+                    let insert;
+                    if (typeof stringToInsertAfter === "string" && stringToInsertAfter.length) {
+                        insert = `${whiteSpaceCompensation}${stringToInsertAfter}${whiteSpaceCompensation === "\n\n" ? "\n" : whiteSpaceCompensation}`;
+                        if (endingRangeIndex === tag.lastClosingBracketAt + 1 && (!str[endingRangeIndex] || !punctuationTrailing.has(str[endingRangeIndex]))) insert += " ";
+                        if (tag.leftOuterWhitespace === tag.lastOpeningBracketAt && rangesToDelete.last() && rangesToDelete.last()[1] < tag.lastOpeningBracketAt && (!resolvedOpts.dumpLinkHrefsNearby || !resolvedOpts.dumpLinkHrefsNearby?.putOnNewLine || !punctuationTrailing.has(str[endingRangeIndex]))) insert = " " + insert;
+                    } else insert = whiteSpaceCompensation;
+                    if (insert !== null && (tag.leftOuterWhitespace === 0 || !E(str, endingRangeIndex - 1)) && (!resolvedOpts.dumpLinkHrefsNearby?.enabled || tag.name !== "a")) insert = void 0;
+                    let punctuationCorrection = 0;
+                    if (hrefInsertionActive && punctuationTrailing.has(str[endingRangeIndex])) {
+                        if (resolvedOpts.dumpLinkHrefsNearby?.putOnNewLine) insert = `${str[endingRangeIndex]}${insert ? insert : ""}`;
+                        let nextCharOnTheRight = E(str, endingRangeIndex);
+                        if (nextCharOnTheRight && insert?.endsWith("\n")) punctuationCorrection += nextCharOnTheRight - i;
+                        else if (!nextCharOnTheRight || nextCharOnTheRight > i) punctuationCorrection++;
+                    }
+                    resolvedOpts.cb({
+                        tag,
+                        deleteFrom: tag.leftOuterWhitespace,
+                        deleteTo: endingRangeIndex + punctuationCorrection,
+                        insert,
+                        rangesArr: rangesToDelete,
+                        proposedReturn: [
+                            tag.leftOuterWhitespace,
+                            endingRangeIndex + punctuationCorrection,
+                            insert
+                        ]
+                    });
+                    resetHrefMarkers();
+                    treatRangedTags(i, resolvedOpts, rangesToDelete);
+                } else tag = {};
+                if (!isClosingAt(i)) tag = {};
+            }
+            if (isDoctype) isDoctype = false;
+        }
+        if ((!isInsideScript || str[i] === "<" && E(str, E(str, i)) && str[E(str, i)] === "/" && str.startsWith("script", E(str, E(str, i)))) && isOpeningAt(i) && !isOpeningAt(i - 1) && !`'"`.includes(str[i + 1]) && (!`'"`.includes(str[i + 2]) || /\w/.test(str[i + 1])) && !(str[i + 1] === "c" && str[i + 2] === ":") && !(str[i + 1] === "f" && str[i + 2] === "m" && str[i + 3] === "t" && str[i + 4] === ":") && !(str[i + 1] === "s" && str[i + 2] === "q" && str[i + 3] === "l" && str[i + 4] === ":") && !(str[i + 1] === "x" && str[i + 2] === ":") && !(str[i + 1] === "f" && str[i + 2] === "n" && str[i + 3] === ":") && notWithinAttrQuotes(tag, str, i)) {
+            if (isClosingAt(E(str, i))) continue;
+            else {
+                if (tag.nameEnds && tag.nameEnds < i && !tag.lastClosingBracketAt) {
+                    if (tag.onlyPlausible === true && tag.attributes && tag.attributes.length || tag.onlyPlausible === false) {
+                        let whiteSpaceCompensation = calculateWhitespaceToInsert(str, i, tag.leftOuterWhitespace, i, tag.lastOpeningBracketAt, i);
+                        resolvedOpts.cb({
+                            tag,
+                            deleteFrom: tag.leftOuterWhitespace,
+                            deleteTo: i,
+                            insert: whiteSpaceCompensation,
+                            rangesArr: rangesToDelete,
+                            proposedReturn: [
+                                tag.leftOuterWhitespace,
+                                i,
+                                whiteSpaceCompensation
+                            ]
+                        });
+                        treatRangedTags(i, resolvedOpts, rangesToDelete);
+                        tag = {};
+                        attrObj = {};
+                    }
+                }
+                if (tag.lastOpeningBracketAt !== void 0 && tag.onlyPlausible && tag.name && !tag.quotes) {
+                    tag.lastOpeningBracketAt = void 0;
+                    tag.name = void 0;
+                    tag.onlyPlausible = false;
+                }
+                if ((tag.lastOpeningBracketAt === void 0 || !tag.onlyPlausible) && !tag.quotes) {
+                    tag.lastOpeningBracketAt = i;
+                    tag.slashPresent = false;
+                    tag.attributes = [];
+                    if (chunkOfWhitespaceStartsAt === null) tag.leftOuterWhitespace = i;
+                    else if (resolvedOpts.trimOnlySpaces && chunkOfWhitespaceStartsAt === 0) tag.leftOuterWhitespace = chunkOfSpacesStartsAt || i;
+                    else tag.leftOuterWhitespace = chunkOfWhitespaceStartsAt;
+                    if (`${str[i + 1]}${str[i + 2]}${str[i + 3]}` === "!--" || `${str[i + 1]}${str[i + 2]}${str[i + 3]}${str[i + 4]}${str[i + 5]}${str[i + 6]}${str[i + 7]}${str[i + 8]}` === "![CDATA[") {
+                        let cdata = true;
+                        if (str[i + 2] === "-") cdata = false;
+                        let closingFoundAt;
+                        for(let y2 = i; y2 < len; y2++){
+                            if (!closingFoundAt && cdata && `${str[y2 - 2]}${str[y2 - 1]}${str[y2]}` === "]]>" || !cdata && `${str[y2 - 2]}${str[y2 - 1]}${str[y2]}` === "-->") closingFoundAt = y2;
+                            if (closingFoundAt && (closingFoundAt < y2 && str[y2].trim() || str[y2 + 1] === void 0)) {
+                                let rangeEnd = y2;
+                                if (str[y2 + 1] === void 0 && !str[y2].trim() || str[y2] === ">") rangeEnd += 1;
+                                if (!allTagLocations.length || allTagLocations[allTagLocations.length - 1][0] !== tag.lastOpeningBracketAt) allTagLocations.push([
+                                    tag.lastOpeningBracketAt,
+                                    closingFoundAt + 1
+                                ]);
+                                if (!filteredTagLocations.length || filteredTagLocations[filteredTagLocations.length - 1][0] !== tag.lastOpeningBracketAt) filteredTagLocations.push([
+                                    tag.lastOpeningBracketAt,
+                                    closingFoundAt + 1
+                                ]);
+                                let whiteSpaceCompensation = calculateWhitespaceToInsert(str, y2, tag.leftOuterWhitespace, rangeEnd, tag.lastOpeningBracketAt, closingFoundAt);
+                                resolvedOpts.cb({
+                                    tag,
+                                    deleteFrom: tag.leftOuterWhitespace,
+                                    deleteTo: rangeEnd,
+                                    insert: whiteSpaceCompensation,
+                                    rangesArr: rangesToDelete,
+                                    proposedReturn: [
+                                        tag.leftOuterWhitespace,
+                                        rangeEnd,
+                                        whiteSpaceCompensation
+                                    ]
+                                });
+                                i = y2 - 1;
+                                if (str[y2] === ">") i = y2;
+                                tag = {};
+                                attrObj = {};
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        if (!str[i].trim() || str[i].charCodeAt(0) === 847) {
+            if (chunkOfWhitespaceStartsAt === null) {
+                chunkOfWhitespaceStartsAt = i;
+                if (tag.lastOpeningBracketAt !== void 0 && tag.lastOpeningBracketAt < i && tag.nameStarts && tag.nameStarts < tag.lastOpeningBracketAt && i === tag.lastOpeningBracketAt + 1 && !rangedOpeningTagsForDeletion.some((rangedTagObj)=>rangedTagObj.name === tag.name)) {
+                    tag.onlyPlausible = true;
+                    tag.name = void 0;
+                    tag.nameStarts = void 0;
+                }
+            }
+            if (str[i] === "\n" || str[i] === "\r") {
+                lastLFCRAt = i;
+                if (nonWhitespaceCharMetSinceLastLFCR) nonWhitespaceCharMetSinceLastLFCR = false;
+            }
+        } else {
+            if (chunkOfWhitespaceStartsAt !== null) {
+                if (!tag.quotes && attrObj.equalsAt > chunkOfWhitespaceStartsAt - 1 && attrObj.nameEnds && attrObj.equalsAt > attrObj.nameEnds && str[i] !== '"' && str[i] !== "'") {
+                    if (O(attrObj)) tag.attributes.push(attrObj);
+                    attrObj = {};
+                    tag.equalsSpottedAt = void 0;
+                }
+                chunkOfWhitespaceStartsAt = null;
+            }
+            if (!nonWhitespaceCharMetSinceLastLFCR) {
+                nonWhitespaceCharMetSinceLastLFCR = true;
+                if (strip && !isInsideScript && typeof lastLFCRAt === "number" && i && lastLFCRAt < i - 1) {
+                    if (str.slice(lastLFCRAt + 1, i).trim()) lastLFCRAt = null;
+                    else rangesToDelete.push([
+                        lastLFCRAt + 1,
+                        i
+                    ]);
+                }
+            }
+        }
+        if (str[i] === " ") {
+            if (chunkOfSpacesStartsAt === null) chunkOfSpacesStartsAt = i;
+        } else if (chunkOfSpacesStartsAt !== null) chunkOfSpacesStartsAt = null;
+        if (tag.name === "script") isInsideScript = !tag.slashPresent;
+    }
+    if (str && (resolvedOpts.trimOnlySpaces && str[0] === " " || !resolvedOpts.trimOnlySpaces && !str[0].trim())) for(let i2 = 0; i2 < len; i2++){
+        if (resolvedOpts.trimOnlySpaces && str[i2] !== " " || !resolvedOpts.trimOnlySpaces && str[i2].trim()) {
+            rangesToDelete.push([
+                0,
+                i2
+            ]);
+            break;
+        } else if (!str[i2 + 1]) rangesToDelete.push([
+            0,
+            i2 + 1
+        ]);
+    }
+    if (str && (resolvedOpts.trimOnlySpaces && str[~-str.length] === " " || !resolvedOpts.trimOnlySpaces && !str[~-str.length].trim())) {
+        for(let i3 = str.length; i3--;)if (resolvedOpts.trimOnlySpaces && str[i3] !== " " || !resolvedOpts.trimOnlySpaces && str[i3].trim()) {
+            rangesToDelete.push([
+                i3 + 1,
+                len
+            ]);
+            break;
+        }
+    }
+    let curr = rangesToDelete.current();
+    if ((!opts || !opts.cb) && curr) {
+        if (curr[0] && !curr[0][0]) {
+            let startingIdx = curr[0][1];
+            rangesToDelete.ranges[0] = [
+                rangesToDelete.ranges[0][0],
+                rangesToDelete.ranges[0][1]
+            ];
+        }
+        if (curr[curr.length - 1] && curr[curr.length - 1][1] === str.length) {
+            let startingIdx = curr[curr.length - 1][0];
+            if (rangesToDelete.ranges) {
+                let startingIdx2 = rangesToDelete.ranges[rangesToDelete.ranges.length - 1][0];
+                if (str[startingIdx2 - 1] && (resolvedOpts.trimOnlySpaces && str[startingIdx2 - 1] === " " || !resolvedOpts.trimOnlySpaces && !str[startingIdx2 - 1].trim())) startingIdx2 -= 1;
+                let backupWhatToAdd = rangesToDelete.ranges[rangesToDelete.ranges.length - 1][2];
+                rangesToDelete.ranges[rangesToDelete.ranges.length - 1] = [
+                    startingIdx2,
+                    rangesToDelete.ranges[rangesToDelete.ranges.length - 1][1]
+                ];
+                if (backupWhatToAdd?.trim()) rangesToDelete.ranges[rangesToDelete.ranges.length - 1].push(backupWhatToAdd.trimEnd());
+            }
+        }
+    }
+    return {
+        log: {
+            timeTakenInMilliseconds: Date.now() - start
+        },
+        result: _(str, rangesToDelete.current()),
+        ranges: rangesToDelete.current(),
+        allTagLocations,
+        filteredTagLocations
+    };
+}
+module.exports = {
+    defaults,
+    stripHtml,
+    version
+};
 
 },{}],"gkKU3":[function(require,module,exports) {
 exports.interopDefault = function(a) {

@@ -20,3 +20,10 @@ textarea {
   padding: .5em;
   font: inherit;
 }
+
+main {
+  max-width: 960px;
+  margin: 0 auto;
+  border: 1px solid gray;
+  padding: 1em;
+}

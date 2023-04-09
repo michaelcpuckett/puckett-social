@@ -1,0 +1,45 @@
+{% macro postsPage() %}
+<!doctype html>
+  <meta charset="utf-8" />
+  <title>{{ entity.name }}</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="stylesheet" href="/public.css" />
+  <link rel="stylesheet" href="/posts.css" />
+  <header class="profile-header">
+    <div class="profile-info">
+      {% if attributedTo.icon.url %}
+        <img
+          height="80"
+          width="80"
+          class="profile-avatar"
+          aria-hidden="true"
+          src="{{ attributedTo.icon.url }}"
+        />
+      {% endif %}
+      <p class="profile-name">
+        {{ attributedTo.name }}
+      </p>
+    </div>
+  </header>
+  <hr />
+  <main>
+    <h1>
+      {{ entity.name }}
+    </h1>
+    {% if posts.orderedItems %}
+      {% for item in posts.orderedItems %}
+        <article class="note">
+          <a href="{{ item.url }}">
+            <time datetime="{{ item.published | formatDateTime }}">
+              {{ item.published | formatDateTimeForDisplay }}
+            </time>
+          </a>
+          <h2>{{ item.content | safe }}</h2>
+        </article>
+      {% endfor %}
+    {% endif %}
+  </main>
+  <nav>
+
+  </nav>
+{% endmacro %}

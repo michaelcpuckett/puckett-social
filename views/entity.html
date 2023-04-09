@@ -3,18 +3,27 @@
 {% from "blog-post.html" import blogPostPage with context %}
 {% from "microblog-status.html" import microblogStatusPage with context %}
 {% from "inbox.html" import inboxPage with context %}
+{% from "blog.html" import blogPage with context %}
+{% from "posts.html" import postsPage with context %}
+{% from "hashtag.html" import hashtagPage with context %}
 
 {% if entity.type == 'Person' %}
   {{ profilePage() }}
-{% elif entity.name == 'Outbox' %}
+{% elif entity.name == 'Outbox' and entity.type == 'OrderedCollection' %}
   {{ outboxPage() }}
-{% elif entity.name == 'Inbox' %}
+{% elif entity.name == 'Inbox' and entity.type == 'OrderedCollection' %}
   {{ inboxPage() }}
+{% elif entity.name == 'Blog' and entity.type == 'OrderedCollection' %}
+  {{ blogPage() }}
+{% elif entity.name == 'Posts' and entity.type == 'OrderedCollection' %}
+  {{ postsPage() }}
+{% elif enity.type == 'Hashtag' or entity.type.includes('Hashtag') %}
+  {{ hashtagPage() }}
 {% elif entity.type == 'Article' %}
   {{ blogPostPage() }}
 {% elif entity.type == 'Note' %}
   {{ microblogStatusPage() }}
-{% elif entity.type == 'CollectionPage' or entity.type == 'OrderedCollectionPage' %}
+{% elif entity.type == 'CollectionPage' or entity.type.includes('CollectionPage') or entity.type == 'OrderedCollectionPage' or entity.type.includes('OrderedCollectionPage') %}
   <!doctype html>
   <meta charset="utf-8" />
   <title>{{ entity.name }}</title>
@@ -49,7 +58,7 @@
       <a href="{{ entity.last }}">Last</a>
     </p>
   </footer>
-{% elif entity.type == 'Collection' or entity.type == 'OrderedCollection' %}
+{% elif entity.type == 'Collection' or entity.type.includes('Collection') or entity.type == 'OrderedCollection' or entity.type.includes('OrderedCollection') %}
 <!doctype html>
   <meta charset="utf-8" />
   <title>{{ entity.name }}</title>
