@@ -9,7 +9,14 @@
     Inbox Feed
   </h1>
   {% for item in feed %}
-    <textarea>{{ item | dump }}</textarea>
+    {% if item.type == 'Create' %}
+      {% if item.object.type == 'Note' %}
+        @{{ item.actor.preferredUsername }} posted <a href="{{ item.object.url }}">a note</a>.
+        <blockquote>
+          {{ item.object.content | safe }}
+        </blockquote>
+      {% endif %}
+    {% endif %}
   {% endfor %}
 </main>
 {% endmacro %}

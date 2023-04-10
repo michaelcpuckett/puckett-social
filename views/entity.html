@@ -12,6 +12,8 @@
   {{ profilePage() }}
 {% elif entity.name == 'Outbox' and entity.type == 'OrderedCollection' %}
   {{ outboxPage() }}
+{% elif entity.name == 'Inbox' and entity.type == 'OrderedCollection' %}
+  {{ inboxPage() }}
 {% elif entity.name === 'Hashtags' and entity.type === 'CollectionPage' %}
   {{ hashtagsPage() }}
 {% elif enity.type == 'Hashtag' or entity.type.includes('Hashtag') %}
