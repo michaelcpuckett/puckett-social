@@ -389,135 +389,147 @@ newMicroblogStatusFormElement?.addEventListener('submit', async (event) => {
     });
 });
 
-const updateMicroblogStatusFormElement = window.document.querySelector(
-  '[data-action="update-microblog-status"]',
-);
+const updateMicroblogStatusFormElements = [
+  ...window.document.querySelectorAll(
+    '[data-action="update-microblog-status"]',
+  ),
+];
 
-updateMicroblogStatusFormElement?.addEventListener('submit', async (event) => {
-  event.preventDefault();
+for (const updateMicroblogStatusFormElement of updateMicroblogStatusFormElements) {
+  updateMicroblogStatusFormElement?.addEventListener(
+    'submit',
+    async (event) => {
+      event.preventDefault();
 
-  const outboxUrl =
-    updateMicroblogStatusFormElement.getAttribute('action') ?? '';
-  const followersUrl =
-    updateMicroblogStatusFormElement.getAttribute('data-followers-url') ?? '';
-  const actorId =
-    updateMicroblogStatusFormElement.getAttribute('data-actor-id') ?? '';
-  const objectId =
-    updateMicroblogStatusFormElement.getAttribute('data-object-id') ?? '';
-  const content =
-    updateMicroblogStatusFormElement.querySelector<HTMLTextAreaElement>(
-      '[name="content"]',
-    )?.value ?? '';
+      const outboxUrl =
+        updateMicroblogStatusFormElement.getAttribute('action') ?? '';
+      const followersUrl =
+        updateMicroblogStatusFormElement.getAttribute('data-followers-url') ??
+        '';
+      const actorId =
+        updateMicroblogStatusFormElement.getAttribute('data-actor-id') ?? '';
+      const objectId =
+        updateMicroblogStatusFormElement.getAttribute('data-object-id') ?? '';
+      const content =
+        updateMicroblogStatusFormElement.querySelector<HTMLTextAreaElement>(
+          '[name="content"]',
+        )?.value ?? '';
 
-  const converter = new showdown.Converter();
-  const htmlContent = converter.makeHtml(content);
+      const converter = new showdown.Converter();
+      const htmlContent = converter.makeHtml(content);
 
-  const strippedContent = stripHtml(htmlContent).result;
+      const strippedContent = stripHtml(htmlContent).result;
 
-  const mentions = extractMentions(strippedContent);
-  const hashtags = extractHashtags(strippedContent);
+      const mentions = extractMentions(strippedContent);
+      const hashtags = extractHashtags(strippedContent);
 
-  const mentionedActorUrls = await getMentionActorUrls(mentions);
+      const mentionedActorUrls = await getMentionActorUrls(mentions);
 
-  const mentionObjects = mentions
-    .map((mention) => {
-      const url = mentionedActorUrls[mention];
+      const mentionObjects = mentions
+        .map((mention) => {
+          const url = mentionedActorUrls[mention];
 
-      if (!url) {
-        return null;
-      }
+          if (!url) {
+            return null;
+          }
 
-      return {
-        type: 'Mention',
-        href: url,
-        name: mention,
-      };
-    })
-    .filter((_) => !!_);
+          return {
+            type: 'Mention',
+            href: url,
+            name: mention,
+          };
+        })
+        .filter((_) => !!_);
 
-  const hashtagObjects = hashtags.map((hashtag) => ({
-    type: 'Hashtag',
-    name: hashtag,
-  }));
+      const hashtagObjects = hashtags.map((hashtag) => ({
+        type: 'Hashtag',
+        name: hashtag,
+      }));
 
-  const tags = [...mentionObjects, ...hashtagObjects];
+      const tags = [...mentionObjects, ...hashtagObjects];
 
-  fetch(outboxUrl, {
-    method: 'POST',
-    headers: {
-      Accept: 'application/activity+json',
+      fetch(outboxUrl, {
+        method: 'POST',
+        headers: {
+          Accept: 'application/activity+json',
+        },
+        body: JSON.stringify({
+          '@context': ['https://www.w3.org/ns/activitystreams'],
+          type: 'Update',
+          actor: actorId,
+          to: [
+            'https://www.w3.org/ns/activitystreams#Public',
+            followersUrl,
+            ...Object.values(mentionedActorUrls),
+          ],
+          object: {
+            id: objectId,
+            content: await replaceMicrosyntaxWithMarkup(
+              htmlContent,
+              mentionedActorUrls,
+            ),
+            ...(tags.length
+              ? {
+                  tag: tags,
+                }
+              : null),
+          },
+        }),
+      })
+        .then((response) => {
+          if (response.headers.get('Location')) {
+            window.location.reload();
+          }
+        })
+        .catch((error) => {
+          console.log(error);
+        });
     },
-    body: JSON.stringify({
-      '@context': ['https://www.w3.org/ns/activitystreams'],
-      type: 'Update',
-      actor: actorId,
-      to: [
-        'https://www.w3.org/ns/activitystreams#Public',
-        followersUrl,
-        ...Object.values(mentionedActorUrls),
-      ],
-      object: {
-        id: objectId,
-        content: await replaceMicrosyntaxWithMarkup(
-          htmlContent,
-          mentionedActorUrls,
-        ),
-        ...(tags.length
-          ? {
-              tag: tags,
-            }
-          : null),
+  );
+}
+
+const deleteMicroblogStatusFormElements = [
+  ...window.document.querySelectorAll(
+    '[data-action="delete-microblog-status"]',
+  ),
+];
+
+for (const deleteMicroblogStatusFormElement of deleteMicroblogStatusFormElements) {
+  deleteMicroblogStatusFormElement.addEventListener('submit', (event) => {
+    event.preventDefault();
+
+    const outboxUrl =
+      deleteMicroblogStatusFormElement.getAttribute('action') ?? '';
+    const followersUrl =
+      deleteMicroblogStatusFormElement.getAttribute('data-followers-url') ?? '';
+    const actorId =
+      deleteMicroblogStatusFormElement.getAttribute('data-actor-id') ?? '';
+    const objectId =
+      deleteMicroblogStatusFormElement.getAttribute('data-object-id') ?? '';
+
+    fetch(outboxUrl, {
+      method: 'POST',
+      headers: {
+        Accept: 'application/activity+json',
       },
-    }),
-  })
-    .then((response) => {
-      if (response.headers.get('Location')) {
-        window.location.reload();
-      }
+      body: JSON.stringify({
+        '@context': ['https://www.w3.org/ns/activitystreams'],
+        type: 'Delete',
+        actor: actorId,
+        to: ['https://www.w3.org/ns/activitystreams#Public', followersUrl],
+        object: objectId,
+      }),
     })
-    .catch((error) => {
-      console.log(error);
-    });
-});
-
-const deleteMicroblogStatusFormElement = window.document.querySelector(
-  '[data-action="delete-microblog-status"]',
-);
-
-deleteMicroblogStatusFormElement?.addEventListener('submit', (event) => {
-  event.preventDefault();
-
-  const outboxUrl =
-    deleteMicroblogStatusFormElement.getAttribute('action') ?? '';
-  const followersUrl =
-    deleteMicroblogStatusFormElement.getAttribute('data-followers-url') ?? '';
-  const actorId =
-    deleteMicroblogStatusFormElement.getAttribute('data-actor-id') ?? '';
-  const objectId =
-    deleteMicroblogStatusFormElement.getAttribute('data-object-id') ?? '';
-
-  fetch(outboxUrl, {
-    method: 'POST',
-    headers: {
-      Accept: 'application/activity+json',
-    },
-    body: JSON.stringify({
-      '@context': ['https://www.w3.org/ns/activitystreams'],
-      type: 'Delete',
-      actor: actorId,
-      to: ['https://www.w3.org/ns/activitystreams#Public', followersUrl],
-      object: objectId,
-    }),
-  })
-    .then((response) => {
-      if (response.headers.get('Location')) {
-        window.location.reload();
-      }
-    })
-    .catch((error) => {
-      console.log(error);
-    });
-});
+      .then((response) => {
+        if (response.headers.get('Location')) {
+          window.location.reload();
+        }
+      })
+      .catch((error) => {
+        console.log(error);
+      });
+  });
+}
 
 const newBlogPostFormElement = window.document.querySelector(
   '[data-action="new-blog-post"]',
@@ -572,91 +584,97 @@ newBlogPostFormElement?.addEventListener('submit', (event) => {
     });
 });
 
-const updateBlogPostFormElement = window.document.querySelector(
-  '[data-action="update-blog-post"]',
-);
+const updateBlogPostFormElements = [
+  ...window.document.querySelectorAll('[data-action="update-blog-post"]'),
+];
 
-updateBlogPostFormElement?.addEventListener('submit', (event) => {
-  event.preventDefault();
+for (const updateBlogPostFormElement of updateBlogPostFormElements) {
+  updateBlogPostFormElement.addEventListener('submit', (event) => {
+    event.preventDefault();
 
-  const outboxUrl = updateBlogPostFormElement.getAttribute('action') ?? '';
-  const followersUrl =
-    updateBlogPostFormElement.getAttribute('data-followers-url') ?? '';
-  const actorId = updateBlogPostFormElement.getAttribute('data-actor-id') ?? '';
-  const objectId =
-    updateBlogPostFormElement.getAttribute('data-object-id') ?? '';
-  const summary =
-    updateBlogPostFormElement.querySelector<HTMLTextAreaElement>(
-      '[name="summary"]',
-    )?.value ?? '';
-  const content =
-    updateBlogPostFormElement.querySelector<HTMLTextAreaElement>(
-      '[name="content"]',
-    )?.value ?? '';
+    const outboxUrl = updateBlogPostFormElement.getAttribute('action') ?? '';
+    const followersUrl =
+      updateBlogPostFormElement.getAttribute('data-followers-url') ?? '';
+    const actorId =
+      updateBlogPostFormElement.getAttribute('data-actor-id') ?? '';
+    const objectId =
+      updateBlogPostFormElement.getAttribute('data-object-id') ?? '';
+    const summary =
+      updateBlogPostFormElement.querySelector<HTMLTextAreaElement>(
+        '[name="summary"]',
+      )?.value ?? '';
+    const content =
+      updateBlogPostFormElement.querySelector<HTMLTextAreaElement>(
+        '[name="content"]',
+      )?.value ?? '';
 
-  const converter = new showdown.Converter();
-  const htmlContent = converter.makeHtml(content);
+    const converter = new showdown.Converter();
+    const htmlContent = converter.makeHtml(content);
 
-  fetch(outboxUrl, {
-    method: 'POST',
-    headers: {
-      Accept: 'application/activity+json',
-    },
-    body: JSON.stringify({
-      '@context': ['https://www.w3.org/ns/activitystreams'],
-      type: 'Update',
-      actor: actorId,
-      to: ['https://www.w3.org/ns/activitystreams#Public', followersUrl],
-      object: {
-        id: objectId,
-        summary,
-        content: htmlContent,
+    fetch(outboxUrl, {
+      method: 'POST',
+      headers: {
+        Accept: 'application/activity+json',
       },
-    }),
-  })
-    .then((response) => {
-      if (response.headers.get('Location')) {
-        window.location.reload();
-      }
+      body: JSON.stringify({
+        '@context': ['https://www.w3.org/ns/activitystreams'],
+        type: 'Update',
+        actor: actorId,
+        to: ['https://www.w3.org/ns/activitystreams#Public', followersUrl],
+        object: {
+          id: objectId,
+          summary,
+          content: htmlContent,
+        },
+      }),
     })
-    .catch((error) => {
-      console.log(error);
-    });
-});
+      .then((response) => {
+        if (response.headers.get('Location')) {
+          window.location.reload();
+        }
+      })
+      .catch((error) => {
+        console.log(error);
+      });
+  });
+}
 
-const deleteBlogPostFormElement = window.document.querySelector(
-  '[data-action="delete-blog-post"]',
-);
+const deleteBlogPostFormElements = [
+  ...window.document.querySelectorAll('[data-action="delete-blog-post"]'),
+];
 
-deleteBlogPostFormElement?.addEventListener('submit', (event) => {
-  event.preventDefault();
+for (const deleteBlogPostFormElement of deleteBlogPostFormElements) {
+  deleteBlogPostFormElement.addEventListener('submit', (event) => {
+    event.preventDefault();
 
-  const outboxUrl = deleteBlogPostFormElement.getAttribute('action') ?? '';
-  const followersUrl =
-    deleteBlogPostFormElement.getAttribute('data-followers-url') ?? '';
-  const actorId = deleteBlogPostFormElement.getAttribute('data-actor-id') ?? '';
-  const objectId =
-    deleteBlogPostFormElement.getAttribute('data-object-id') ?? '';
+    const outboxUrl = deleteBlogPostFormElement.getAttribute('action') ?? '';
+    const followersUrl =
+      deleteBlogPostFormElement.getAttribute('data-followers-url') ?? '';
+    const actorId =
+      deleteBlogPostFormElement.getAttribute('data-actor-id') ?? '';
+    const objectId =
+      deleteBlogPostFormElement.getAttribute('data-object-id') ?? '';
 
-  fetch(outboxUrl, {
-    method: 'POST',
-    headers: {
-      Accept: 'application/activity+json',
-    },
-    body: JSON.stringify({
-      '@context': ['https://www.w3.org/ns/activitystreams'],
-      type: 'Delete',
-      actor: actorId,
-      to: ['https://www.w3.org/ns/activitystreams#Public', followersUrl],
-      object: objectId,
-    }),
-  })
-    .then((response) => {
-      if (response.headers.get('Location')) {
-        window.location.reload();
-      }
+    fetch(outboxUrl, {
+      method: 'POST',
+      headers: {
+        Accept: 'application/activity+json',
+      },
+      body: JSON.stringify({
+        '@context': ['https://www.w3.org/ns/activitystreams'],
+        type: 'Delete',
+        actor: actorId,
+        to: ['https://www.w3.org/ns/activitystreams#Public', followersUrl],
+        object: objectId,
+      }),
     })
-    .catch((error) => {
-      console.log(error);
-    });
-});
+      .then((response) => {
+        if (response.headers.get('Location')) {
+          window.location.reload();
+        }
+      })
+      .catch((error) => {
+        console.log(error);
+      });
+  });
+}

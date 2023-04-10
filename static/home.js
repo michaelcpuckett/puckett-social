@@ -837,8 +837,10 @@ newMicroblogStatusFormElement?.addEventListener("submit", async (event)=>{
         console.log(error);
     });
 });
-const updateMicroblogStatusFormElement = window.document.querySelector('[data-action="update-microblog-status"]');
-updateMicroblogStatusFormElement?.addEventListener("submit", async (event)=>{
+const updateMicroblogStatusFormElements = [
+    ...window.document.querySelectorAll('[data-action="update-microblog-status"]')
+];
+for (const updateMicroblogStatusFormElement of updateMicroblogStatusFormElements)updateMicroblogStatusFormElement?.addEventListener("submit", async (event)=>{
     event.preventDefault();
     const outboxUrl = updateMicroblogStatusFormElement.getAttribute("action") ?? "";
     const followersUrl = updateMicroblogStatusFormElement.getAttribute("data-followers-url") ?? "";
@@ -898,8 +900,10 @@ updateMicroblogStatusFormElement?.addEventListener("submit", async (event)=>{
         console.log(error);
     });
 });
-const deleteMicroblogStatusFormElement = window.document.querySelector('[data-action="delete-microblog-status"]');
-deleteMicroblogStatusFormElement?.addEventListener("submit", (event)=>{
+const deleteMicroblogStatusFormElements = [
+    ...window.document.querySelectorAll('[data-action="delete-microblog-status"]')
+];
+for (const deleteMicroblogStatusFormElement of deleteMicroblogStatusFormElements)deleteMicroblogStatusFormElement.addEventListener("submit", (event)=>{
     event.preventDefault();
     const outboxUrl = deleteMicroblogStatusFormElement.getAttribute("action") ?? "";
     const followersUrl = deleteMicroblogStatusFormElement.getAttribute("data-followers-url") ?? "";
@@ -969,8 +973,10 @@ newBlogPostFormElement?.addEventListener("submit", (event)=>{
         console.log(error);
     });
 });
-const updateBlogPostFormElement = window.document.querySelector('[data-action="update-blog-post"]');
-updateBlogPostFormElement?.addEventListener("submit", (event)=>{
+const updateBlogPostFormElements = [
+    ...window.document.querySelectorAll('[data-action="update-blog-post"]')
+];
+for (const updateBlogPostFormElement of updateBlogPostFormElements)updateBlogPostFormElement.addEventListener("submit", (event)=>{
     event.preventDefault();
     const outboxUrl = updateBlogPostFormElement.getAttribute("action") ?? "";
     const followersUrl = updateBlogPostFormElement.getAttribute("data-followers-url") ?? "";
@@ -1007,8 +1013,10 @@ updateBlogPostFormElement?.addEventListener("submit", (event)=>{
         console.log(error);
     });
 });
-const deleteBlogPostFormElement = window.document.querySelector('[data-action="delete-blog-post"]');
-deleteBlogPostFormElement?.addEventListener("submit", (event)=>{
+const deleteBlogPostFormElements = [
+    ...window.document.querySelectorAll('[data-action="delete-blog-post"]')
+];
+for (const deleteBlogPostFormElement of deleteBlogPostFormElements)deleteBlogPostFormElement.addEventListener("submit", (event)=>{
     event.preventDefault();
     const outboxUrl = deleteBlogPostFormElement.getAttribute("action") ?? "";
     const followersUrl = deleteBlogPostFormElement.getAttribute("data-followers-url") ?? "";
