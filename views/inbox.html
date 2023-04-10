@@ -15,8 +15,26 @@
         <blockquote>
           {{ item.object.content | safe }}
         </blockquote>
+        {% if actor %}
+          <form
+            novalidate
+            action="{{ actor.outbox.url }}"
+            data-action="like-post"
+            method="POST"
+            data-actor-id="{{ actor.id }}"
+            data-followers-url="{{ actor.followers }}"
+            data-object-id="{{ item.object.id }}"
+            data-object-actor-id="{{ item.actor.id }}">
+            <button type="submit">
+              Like
+            </button>
+          </form>
+        {% endif %}
       {% endif %}
     {% endif %}
   {% endfor %}
+  {% if actor %}
+    <script type="module" src="/home.js"></script>
+  {% endif %}
 </main>
 {% endmacro %}

@@ -1045,6 +1045,40 @@ for (const deleteBlogPostFormElement of deleteBlogPostFormElements)deleteBlogPos
         console.log(error);
     });
 });
+const likeFormElements = [
+    ...window.document.querySelectorAll('[data-action="like"]')
+];
+for (const likeFormElement of likeFormElements)likeFormElement.addEventListener("submit", (event)=>{
+    event.preventDefault();
+    const outboxUrl = likeFormElement.getAttribute("action") ?? "";
+    const followersUrl = likeFormElement.getAttribute("data-followers-url") ?? "";
+    const objectActorId = likeFormElement.getAttribute("data-object-actor-url") ?? "";
+    const actorId = likeFormElement.getAttribute("data-actor-id") ?? "";
+    const objectId = likeFormElement.getAttribute("data-object-id") ?? "";
+    fetch(outboxUrl, {
+        method: "POST",
+        headers: {
+            Accept: "application/activity+json"
+        },
+        body: JSON.stringify({
+            "@context": [
+                "https://www.w3.org/ns/activitystreams"
+            ],
+            type: "Like",
+            actor: actorId,
+            to: [
+                "https://www.w3.org/ns/activitystreams#Public",
+                followersUrl,
+                objectActorId
+            ],
+            object: objectId
+        })
+    }).then((response)=>{
+        if (response.headers.get("Location")) window.location.reload();
+    }).catch((error)=>{
+        console.log(error);
+    });
+});
 
 },{"showdown":"eYddV","string-strip-html":"jDJw2","@parcel/transformer-js/src/esmodule-helpers.js":"gkKU3"}],"eYddV":[function(require,module,exports) {
 (function() {
