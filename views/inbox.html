@@ -19,6 +19,7 @@
           <a href="{{ item.object.url }}">your follow request</a>.
         </article>
       {% endif %}
+    {% endif %}
     {% if item.type == 'Create' %}
       {% if item.object.type == 'Note' and not item.object.inReplyTo %}
         <article class="note">
