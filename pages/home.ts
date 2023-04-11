@@ -734,7 +734,7 @@ for (const likeFormElement of likeFormElements) {
     const followersUrl =
       likeFormElement.getAttribute('data-followers-url') ?? '';
     const objectActorId =
-      likeFormElement.getAttribute('data-object-actor-url') ?? '';
+      likeFormElement.getAttribute('data-object-actor-id') ?? '';
     const actorId = likeFormElement.getAttribute('data-actor-id') ?? '';
     const objectId = likeFormElement.getAttribute('data-object-id') ?? '';
 

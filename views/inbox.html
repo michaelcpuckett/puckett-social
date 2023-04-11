@@ -9,6 +9,16 @@
     Inbox Feed
   </h1>
   {% for item in feed %}
+    {% if item.type == 'Accept' %}
+      {% if item.object.actor == attributedTo.id %}
+        <article class="note">
+          <a href="{{ item.actor.url }}">
+            @{{ item.actor.preferredUsername }}@{{ item.actor.url | getDomain }}
+          </a>
+          <a href="{{ item.url }}">accepted</a>
+          <a href="{{ item.object.url }}">your follow request</a>.
+        </article>
+      {% endif %}
     {% if item.type == 'Create' %}
       {% if item.object.type == 'Note' and not item.object.inReplyTo %}
         <article class="note">
