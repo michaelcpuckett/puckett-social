@@ -10,26 +10,28 @@
   </h1>
   {% for item in feed %}
     {% if item.type == 'Create' %}
-      {% if item.object.type == 'Note' %}
-        @{{ item.actor.preferredUsername }} posted <a href="{{ item.object.url }}">a note</a>.
-        <blockquote>
-          {{ item.object.content | safe }}
-        </blockquote>
-        {% if actor %}
-          <form
-            novalidate
-            action="{{ actor.outbox.url }}"
-            data-action="like-post"
-            method="POST"
-            data-actor-id="{{ actor.id }}"
-            data-followers-url="{{ actor.followers }}"
-            data-object-id="{{ item.object.id }}"
-            data-object-actor-id="{{ item.actor.id }}">
-            <button type="submit">
-              Like
-            </button>
-          </form>
-        {% endif %}
+      {% if item.object.type == 'Note' and not item.object.inReplyTo %}
+        <article class="note">
+          @{{ item.actor.preferredUsername }} posted <a href="{{ item.object.url }}">a note</a>.
+          <blockquote>
+            {{ item.object.content | safe }}
+          </blockquote>
+          {% if actor %}
+            <form
+              novalidate
+              action="{{ actor.outbox.url }}"
+              data-action="like"
+              method="POST"
+              data-actor-id="{{ actor.id }}"
+              data-followers-url="{{ actor.followers }}"
+              data-object-id="{{ item.object.id }}"
+              data-object-actor-id="{{ item.actor.id }}">
+              <button type="submit">
+                Like
+              </button>
+            </form>
+          {% endif %}
+        </article>
       {% endif %}
     {% endif %}
   {% endfor %}
