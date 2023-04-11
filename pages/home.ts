@@ -328,7 +328,7 @@ followFormElement?.addEventListener('submit', async (event) => {
     },
     body: JSON.stringify({
       '@context': ['https://www.w3.org/ns/activitystreams'],
-      type: 'Update',
+      type: 'Follow',
       actor: actorId,
       to: [
         'https://www.w3.org/ns/activitystreams#Public',
