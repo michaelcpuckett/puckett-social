@@ -305,6 +305,49 @@ uploadImageFormElement?.addEventListener('submit', (event) => {
     });
 });
 
+const followFormElement = window.document.querySelector(
+  'form[data-action="follow"]',
+);
+
+followFormElement?.addEventListener('submit', async (event) => {
+  event.preventDefault();
+
+  const outboxUrl = followFormElement.getAttribute('action') ?? '';
+  const followersUrl =
+    followFormElement.getAttribute('data-followers-url') ?? '';
+  const actorId = followFormElement.getAttribute('data-actor-id') ?? '';
+
+  const object =
+    followFormElement.querySelector<HTMLInputElement>('[name="object"]')
+      ?.value ?? '';
+
+  fetch(outboxUrl, {
+    method: 'POST',
+    headers: {
+      Accept: 'application/activity+json',
+    },
+    body: JSON.stringify({
+      '@context': ['https://www.w3.org/ns/activitystreams'],
+      type: 'Update',
+      actor: actorId,
+      to: [
+        'https://www.w3.org/ns/activitystreams#Public',
+        followersUrl,
+        object,
+      ],
+      object,
+    }),
+  })
+    .then((response) => {
+      if (response.headers.get('Location')) {
+        window.location.reload();
+      }
+    })
+    .catch((error) => {
+      console.log(error);
+    });
+});
+
 const newMicroblogStatusFormElement = window.document.querySelector(
   '[data-action="new-microblog-status"]',
 );

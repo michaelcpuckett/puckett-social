@@ -99,7 +99,7 @@
 
 <details>
   <summary>
-    Microblog Status
+    New Microblog Status
   </summary>
   <form
     novalidate
@@ -271,5 +271,41 @@
       </li>
     {% endfor %}
   </ul>
+</details>
+
+<details>
+  <summary>
+    Following
+  </summary>
+  <div>
+    <form
+      novalidate
+      action="{{ actor.outbox.url }}"
+      data-action="follow"
+      method="POST"
+      data-actor-id="{{ actor.id }}"
+      data-followers-url="{{ actor.followers }}">
+      <label>
+        <span>
+          Follow an Account by URL
+        </span>
+        <input type="text" name="object" />
+      </label>
+    </form>
+    <details open>
+      <summary>
+        All Following
+      </summary>
+      <ul>
+        {% for item in following %}
+          <li>
+            <a href="{{ item.url }}">
+              @{{ item.preferredUsername }}@{{ item.url | getDomain }}
+            </a>
+          </li>
+        {% endfor %}
+      </ul>
+    </details>
+  </div>
 </details>
 <script type="module" src="/home.js"></script>

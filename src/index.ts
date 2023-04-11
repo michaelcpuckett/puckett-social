@@ -311,6 +311,15 @@ import { JSDOM } from 'jsdom';
               attributedTo: await this.adapters.db.findEntityById(
                 getId(outbox.attributedTo),
               ),
+
+              followers: await this.adapters.db.expandCollection(
+                getId(actor.followers),
+              ),
+
+              following: await this.adapters.db.expandCollection(
+                getId(actor.following),
+              ),
+
               notes: (
                 await Promise.all(
                   outbox.orderedItems.map(async (item) => {
