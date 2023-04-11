@@ -12,7 +12,13 @@
     {% if item.type == 'Create' %}
       {% if item.object.type == 'Note' and not item.object.inReplyTo %}
         <article class="note">
-          @{{ item.actor.preferredUsername }} posted <a href="{{ item.object.url }}">a note</a>.
+          <a href="{{ item.actor.url }}">
+            @{{ item.actor.preferredUsername }}@{{ item.actor.url | getDomain }}
+          </a>
+          posted <a href="{{ item.object.url }}">a note</a> on
+          <time datetime="{{ item.object.published | formatDateTime }}">
+            {{ item.object.published | formatDateTimeForDisplay }}
+          </time>.
           <blockquote>
             {{ item.object.content | safe }}
           </blockquote>
