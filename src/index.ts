@@ -130,7 +130,9 @@ import { JSDOM } from 'jsdom';
     process.env.AP_MONGO_CLIENT_URL ?? 'mongodb://127.0.0.1:27017',
   );
   await mongoClient.connect();
-  const mongoDb = mongoClient.db(process.env.AP_MONGO_DB_NAME ?? 'activitypub');
+  const mongoDb = mongoClient.db(
+    process.env.AP_MONGO_DB_NAME ?? 'activitypub2',
+  );
 
   const nodeCryptoAdapter = new NodeCryptoAdapter();
   const mongoDbAdapter = new MongoDbAdapter(mongoDb, {
@@ -221,20 +223,7 @@ import { JSDOM } from 'jsdom';
         storage: ftpStorageAdapter,
       },
 
-      routes: {
-        person: '/about',
-        inbox: '/feed',
-        outbox: '/',
-        followers: '/followers',
-        following: '/following',
-        liked: '/liked',
-        stream: '/:slug',
-        endpoint: '/:slug',
-        note: '/posts/:year/:month/:day/:guid',
-        article: '/blog/:slug',
-        hashtag: '/tags/:slug',
-        serverHashtags: '/tags',
-      },
+      routes: {},
 
       plugins: [
         {
