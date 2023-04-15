@@ -13,7 +13,6 @@ import { MongoDbAdapter } from 'activitypub-core-db-mongo';
 import { CryptoAuthAdapter } from 'activitypub-core-auth-crypto';
 import { NodeCryptoAdapter } from 'activitypub-core-crypto-node';
 import { FtpStorageAdapter } from 'activitypub-core-storage-ftp';
-import { DeliveryAdapter } from 'activitypub-core-delivery';
 import { isTypeOf, streamToString } from 'activitypub-core-utilities';
 import { getId, isType } from 'activitypub-core-utilities';
 import {
@@ -135,18 +134,12 @@ import { JSDOM } from 'jsdom';
   );
 
   const nodeCryptoAdapter = new NodeCryptoAdapter();
-  const mongoDbAdapter = new MongoDbAdapter(mongoDb, {
-    crypto: nodeCryptoAdapter,
-  });
+
+  const mongoDbAdapter = new MongoDbAdapter(mongoDb);
+
   const cryptoAuthAdapter = new CryptoAuthAdapter({
     db: mongoDbAdapter,
     crypto: nodeCryptoAdapter,
-  });
-  const defaultDeliveryAdapter = new DeliveryAdapter({
-    adapters: {
-      db: mongoDbAdapter,
-      crypto: nodeCryptoAdapter,
-    },
   });
 
   app.post('/login', async (req, res, next) => {
@@ -216,10 +209,9 @@ import { JSDOM } from 'jsdom';
       },
 
       adapters: {
-        crypto: nodeCryptoAdapter,
         auth: cryptoAuthAdapter,
+        crypto: nodeCryptoAdapter,
         db: mongoDbAdapter,
-        delivery: defaultDeliveryAdapter,
         storage: ftpStorageAdapter,
       },
 
@@ -231,7 +223,7 @@ import { JSDOM } from 'jsdom';
            * Prevent more than a single user from joining.
            */
           async handleCreateUserActor() {
-            const existingPerson = await this.adapters.db.findOne('entity', {
+            const existingPerson = await this.lib.findOne('entity', {
               type: AP.ActorTypes.PERSON,
             });
 
@@ -260,19 +252,15 @@ import { JSDOM } from 'jsdom';
               assertIsApExtendedObject(this.activity.object);
 
               if (isType(this.activity.object, AP.ExtendedObjectTypes.NOTE)) {
-                await this.adapters.db.insertOrderedItem(
-                  getId(
-                    await this.adapters.db.getStreamByName(this.actor, 'Posts'),
-                  ),
+                await this.lib.insertOrderedItem(
+                  getId(await this.lib.getStreamByName(this.actor, 'Posts')),
                   getId(this.activity.object),
                 );
               } else if (
                 isType(this.activity.object, AP.ExtendedObjectTypes.ARTICLE)
               ) {
-                await this.adapters.db.insertOrderedItem(
-                  getId(
-                    await this.adapters.db.getStreamByName(this.actor, 'Blog'),
-                  ),
+                await this.lib.insertOrderedItem(
+                  getId(await this.lib.getStreamByName(this.actor, 'Blog')),
                   getId(this.activity.object),
                 );
               }
@@ -283,9 +271,7 @@ import { JSDOM } from 'jsdom';
            * Add data to display content in home section.
            */
           async getHomePageProps(actor: AP.Actor) {
-            const outbox = await this.adapters.db.expandCollection(
-              actor.outbox,
-            );
+            const outbox = await this.lib.expandCollection(actor.outbox);
 
             assertIsApCollection(outbox);
 
@@ -297,15 +283,15 @@ import { JSDOM } from 'jsdom';
             }
 
             const props = {
-              attributedTo: await this.adapters.db.findEntityById(
+              attributedTo: await this.lib.findEntityById(
                 getId(outbox.attributedTo),
               ),
 
-              followers: await this.adapters.db.expandCollection(
+              followers: await this.lib.expandCollection(
                 getId(actor.followers),
               ),
 
-              following: await this.adapters.db.expandCollection(
+              following: await this.lib.expandCollection(
                 getId(actor.following),
               ),
 
@@ -319,7 +305,7 @@ import { JSDOM } from 'jsdom';
                         AP.ExtendedObjectTypes.NOTE,
                       );
                       const objectId = getId(item.object);
-                      return await this.adapters.db.findEntityById(objectId);
+                      return await this.lib.findEntityById(objectId);
                     } catch (error) {
                       return null;
                     }
@@ -339,7 +325,7 @@ import { JSDOM } from 'jsdom';
                         AP.ExtendedObjectTypes.ARTICLE,
                       );
                       const objectId = getId(item.object);
-                      return await this.adapters.db.findEntityById(objectId);
+                      return await this.lib.findEntityById(objectId);
                     } catch (error) {
                       return null;
                     }
@@ -369,7 +355,7 @@ import { JSDOM } from 'jsdom';
             if (isType(entity, AP.ExtendedObjectTypes.HASHTAG)) {
               assertIsApCollection(entity);
 
-              const tagged = await this.adapters.db.expandCollection(entity);
+              const tagged = await this.lib.expandCollection(entity);
 
               if (
                 !('orderedItems' in tagged) ||
@@ -409,22 +395,14 @@ import { JSDOM } from 'jsdom';
                 assertIsApExtendedObject(entity);
 
                 const likesId = getId(entity.likes);
-                const indexedLikes = await this.adapters.db.findEntityById(
-                  likesId,
-                );
+                const indexedLikes = await this.lib.findEntityById(likesId);
                 assertIsApCollection(indexedLikes);
-                const likes = await this.adapters.db.expandCollection(
-                  indexedLikes,
-                );
+                const likes = await this.lib.expandCollection(indexedLikes);
 
                 const repliesId = getId(entity.replies);
-                const indexedReplies = await this.adapters.db.findEntityById(
-                  repliesId,
-                );
+                const indexedReplies = await this.lib.findEntityById(repliesId);
                 assertIsApCollection(indexedReplies);
-                const replies = await this.adapters.db.expandCollection(
-                  indexedReplies,
-                );
+                const replies = await this.lib.expandCollection(indexedReplies);
                 assertIsApType<AP.OrderedCollection>(
                   replies,
                   AP.CollectionTypes.ORDERED_COLLECTION,
@@ -436,10 +414,10 @@ import { JSDOM } from 'jsdom';
                   replies.orderedItems.map(async (item) => {
                     if (item instanceof URL) {
                       try {
-                        const reply = await this.adapters.db.queryById(item);
+                        const reply = await this.lib.queryById(item);
                         assertIsApExtendedObject(reply);
                         const replyActorId = getId(reply.attributedTo);
-                        const replyActor = await this.adapters.db.queryById(
+                        const replyActor = await this.lib.queryById(
                           replyActorId,
                         );
                         reply.attributedTo = replyActor;
@@ -454,13 +432,9 @@ import { JSDOM } from 'jsdom';
                 );
 
                 const sharesId = getId(entity.shares);
-                const indexedShares = await this.adapters.db.findEntityById(
-                  sharesId,
-                );
+                const indexedShares = await this.lib.findEntityById(sharesId);
                 assertIsApCollection(indexedShares);
-                const shares = await this.adapters.db.expandCollection(
-                  indexedShares,
-                );
+                const shares = await this.lib.expandCollection(indexedShares);
 
                 assertIsApType<AP.OrderedCollection>(
                   likes,
@@ -510,8 +484,9 @@ import { JSDOM } from 'jsdom';
             ) {
               assertIsApCollection(entity);
 
-              const expandedCollection =
-                await this.adapters.db.expandCollection(entity);
+              const expandedCollection = await this.lib.expandCollection(
+                entity,
+              );
 
               return {
                 hashtags: expandedCollection.items,
@@ -522,11 +497,11 @@ import { JSDOM } from 'jsdom';
             ) {
               assertIsApCollection(entity);
 
-              const posts = await this.adapters.db.expandCollection(entity);
+              const posts = await this.lib.expandCollection(entity);
 
               return {
                 posts,
-                attributedTo: await this.adapters.db.findEntityById(
+                attributedTo: await this.lib.findEntityById(
                   getId(entity.attributedTo),
                 ),
               };
@@ -536,11 +511,11 @@ import { JSDOM } from 'jsdom';
             ) {
               assertIsApCollection(entity);
 
-              const blog = await this.adapters.db.expandCollection(entity);
+              const blog = await this.lib.expandCollection(entity);
 
               return {
                 blog,
-                attributedTo: await this.adapters.db.findEntityById(
+                attributedTo: await this.lib.findEntityById(
                   getId(entity.attributedTo),
                 ),
               };
@@ -550,7 +525,7 @@ import { JSDOM } from 'jsdom';
             ) {
               assertIsApCollection(entity);
 
-              const outbox = await this.adapters.db.expandCollection(entity);
+              const outbox = await this.lib.expandCollection(entity);
 
               if (
                 !('orderedItems' in outbox) ||
@@ -560,7 +535,7 @@ import { JSDOM } from 'jsdom';
               }
 
               const props = {
-                attributedTo: await this.adapters.db.findEntityById(
+                attributedTo: await this.lib.findEntityById(
                   getId(outbox.attributedTo),
                 ),
                 notes: (
@@ -576,7 +551,7 @@ import { JSDOM } from 'jsdom';
                           AP.ExtendedObjectTypes.NOTE,
                         );
                         const objectId = getId(item.object);
-                        return await this.adapters.db.findEntityById(objectId);
+                        return await this.lib.findEntityById(objectId);
                       } catch (error) {
                         return null;
                       }
@@ -599,7 +574,7 @@ import { JSDOM } from 'jsdom';
                           AP.ExtendedObjectTypes.ARTICLE,
                         );
                         const objectId = getId(item.object);
-                        return await this.adapters.db.findEntityById(objectId);
+                        return await this.lib.findEntityById(objectId);
                       } catch (error) {
                         return null;
                       }
@@ -626,7 +601,7 @@ import { JSDOM } from 'jsdom';
             ) {
               assertIsApCollection(entity);
 
-              const inbox = await this.adapters.db.expandCollection(entity);
+              const inbox = await this.lib.expandCollection(entity);
 
               if (
                 !('orderedItems' in inbox) ||
@@ -643,9 +618,7 @@ import { JSDOM } from 'jsdom';
 
                       return {
                         ...item,
-                        actor: await this.adapters.db.queryById(
-                          getId(item.actor),
-                        ),
+                        actor: await this.lib.queryById(getId(item.actor)),
                       };
                     } catch (error) {
                       return item;
