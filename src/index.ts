@@ -13,18 +13,15 @@ import { MongoDbAdapter } from '@activity-kit/db-mongo';
 import { TokenAuthAdapter } from '@activity-kit/auth-token';
 import { NodeCryptoAdapter } from '@activity-kit/crypto-node';
 import { FtpStorageAdapter } from '@activity-kit/storage-ftp';
-import {
-  isTypeOf,
-  streamToString,
-  getId,
-  isType,
-} from '@activity-kit/utilities';
+import { streamToString, getId } from '@activity-kit/utilities';
 import {
   assertIsArray,
   assertIsApActivity,
   assertIsApCollection,
   assertIsApExtendedObject,
   assertIsApType,
+  isTypeOf,
+  isType,
 } from '@activity-kit/types';
 
 // Monkey-patch showdown.
@@ -240,17 +237,25 @@ import { JSDOM } from 'jsdom';
            * Add content to streams manually.
            */
           async handleOutboxSideEffect() {
-            if (isType(this.activity, AP.ActivityTypes.CREATE)) {
+            if (isType<AP.Create>(this.activity, AP.ActivityTypes.CREATE)) {
               assertIsApType<AP.Create>(this.activity, AP.ActivityTypes.CREATE);
               assertIsApExtendedObject(this.activity.object);
 
-              if (isType(this.activity.object, AP.ExtendedObjectTypes.NOTE)) {
+              if (
+                isType<AP.Note>(
+                  this.activity.object,
+                  AP.ExtendedObjectTypes.NOTE,
+                )
+              ) {
                 await this.core.insertOrderedItem(
                   getId(await this.core.getStreamByName(this.actor, 'Posts')),
                   getId(this.activity.object),
                 );
               } else if (
-                isType(this.activity.object, AP.ExtendedObjectTypes.ARTICLE)
+                isType<AP.Article>(
+                  this.activity.object,
+                  AP.ExtendedObjectTypes.ARTICLE,
+                )
               ) {
                 await this.core.insertOrderedItem(
                   getId(await this.core.getStreamByName(this.actor, 'Blog')),
@@ -345,42 +350,7 @@ import { JSDOM } from 'jsdom';
            * Add data to templates manually.
            */
           async getEntityPageProps(entity) {
-            if (isType(entity, AP.ExtendedObjectTypes.HASHTAG)) {
-              assertIsApCollection(entity);
-
-              const tagged = await this.core.expandCollection(entity);
-
-              if (
-                !('orderedItems' in tagged) ||
-                !Array.isArray(tagged.orderedItems)
-              ) {
-                return {};
-              }
-
-              return {
-                posts: tagged.orderedItems.filter((item) => {
-                  if (item instanceof URL) {
-                    return false;
-                  }
-
-                  return isTypeOf(item, AP.ExtendedObjectTypes);
-                }),
-                people: tagged.orderedItems.filter((item) => {
-                  if (item instanceof URL) {
-                    return false;
-                  }
-
-                  return isType(item, AP.ActorTypes.PERSON);
-                }),
-                groups: tagged.orderedItems.filter((item) => {
-                  if (item instanceof URL) {
-                    return false;
-                  }
-
-                  return isType(item, AP.ActorTypes.GROUP);
-                }),
-              };
-            } else if (
+            if (
               entity.type === AP.ExtendedObjectTypes.NOTE ||
               entity.type === AP.ExtendedObjectTypes.ARTICLE
             ) {
@@ -622,6 +592,46 @@ import { JSDOM } from 'jsdom';
                     }
                   }),
                 ),
+              };
+            } else if (
+              isType<AP.Hashtag>(entity, AP.ExtendedObjectTypes.HASHTAG)
+            ) {
+              assertIsApCollection(entity);
+
+              const tagged = await this.core.expandCollection(entity);
+
+              if (
+                !('orderedItems' in tagged) ||
+                !Array.isArray(tagged.orderedItems)
+              ) {
+                return {};
+              }
+
+              return {
+                posts: tagged.orderedItems.filter((item) => {
+                  if (item instanceof URL) {
+                    return false;
+                  }
+
+                  return isTypeOf<AP.ExtendedObject>(
+                    item,
+                    AP.ExtendedObjectTypes,
+                  );
+                }),
+                people: tagged.orderedItems.filter((item) => {
+                  if (item instanceof URL) {
+                    return false;
+                  }
+
+                  return isType<AP.Person>(item, AP.ActorTypes.PERSON);
+                }),
+                groups: tagged.orderedItems.filter((item) => {
+                  if (item instanceof URL) {
+                    return false;
+                  }
+
+                  return isType<AP.Group>(item, AP.ActorTypes.GROUP);
+                }),
               };
             }
           },
