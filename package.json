@@ -24,7 +24,7 @@
     "@activity-kit/crypto-node": "0.4.22",
     "@activity-kit/db-mongo": "0.4.30",
     "@activity-kit/storage-ftp": "0.4.22",
-    "@activity-kit/server-express": "0.4.33",
+    "@activity-kit/server-express": "0.4.34",
     "@activity-kit/types": "0.4.22",
     "@activity-kit/utilities": "0.4.30",
     "cookie": "^0.5.0",
