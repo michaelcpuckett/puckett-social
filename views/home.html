@@ -1,57 +1,55 @@
-<!doctype html>
+<!DOCTYPE html>
 <meta charset="utf-8" />
 <title>My Blog - Home</title>
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <link rel="stylesheet" href="/main.css" />
+<link rel="manifest" src="manifest.json" />
 <details>
-  <summary>
-    Edit Profile
-  </summary>
+  <summary>Edit Profile</summary>
   <div>
-    <form 
+    <form
       novalidate
       action="{{ actor.outbox.url }}"
       data-upload-media-endpoint-url="{{ actor.endpoints.uploadMedia }}"
       method="POST"
       data-action="upload-icon"
       data-actor-id="{{ actor.id }}"
-      data-followers-url="{{ actor.followers }}">
+      data-followers-url="{{ actor.followers }}"
+    >
       <label class="label">
-        <span class="label-text">
-          Change Profile Pic
-        </span>
+        <span class="label-text"> Change Profile Pic </span>
         {% if actor.icon.url %}
-          <img src="{{ actor.icon.url }}" height="80" width="80" alt="Current profile pic" />
-        {% endif %}
-        <input
-          type="file"
-          name="file"
-          accept="image/*"
+        <img
+          src="{{ actor.icon.url }}"
+          height="80"
+          width="80"
+          alt="Current profile pic"
         />
+        {% endif %}
+        <input type="file" name="file" accept="image/*" />
       </label>
       <button type="submit">Upload</button>
     </form>
     <hr />
-    <form 
+    <form
       novalidate
       action="{{ actor.outbox.url }}"
       data-upload-media-endpoint-url="{{ actor.endpoints.uploadMedia }}"
       method="POST"
       data-action="upload-image"
       data-actor-id="{{ actor.id }}"
-      data-followers-url="{{ actor.followers }}">
+      data-followers-url="{{ actor.followers }}"
+    >
       <label class="label">
-        <span class="label-text">
-          Change Profile Background Image
-        </span>
+        <span class="label-text"> Change Profile Background Image </span>
         {% if actor.image.url %}
-          <img src="{{ actor.image.url }}" width="80" alt="Current Background Image" />
-        {% endif %}
-        <input
-          type="file"
-          name="file"
-          accept="image/*"
+        <img
+          src="{{ actor.image.url }}"
+          width="80"
+          alt="Current Background Image"
         />
+        {% endif %}
+        <input type="file" name="file" accept="image/*" />
       </label>
       <button type="submit">Upload</button>
     </form>
@@ -62,11 +60,10 @@
       method="POST"
       data-action="edit-profile"
       data-actor-id="{{ actor.id }}"
-      data-followers-url="{{ actor.followers }}">
+      data-followers-url="{{ actor.followers }}"
+    >
       <label class="label">
-        <span class="label-text">
-          Username
-        </span>
+        <span class="label-text"> Username </span>
         <input
           readonly
           type="text"
@@ -75,208 +72,170 @@
         />
       </label>
       <label class="label">
-        <span class="label-text">
-          Name
-        </span>
-        <input
-          type="text"
-          value="{{ actor.name }}"
-          name="name"
-        />
+        <span class="label-text"> Name </span>
+        <input type="text" value="{{ actor.name }}" name="name" />
       </label>
       <label class="label">
-        <span class="label-text">
-          Description
-        </span>
-        <textarea name="summary" rows="4">{{ actor.summary | toMarkdown }}</textarea>
+        <span class="label-text"> Description </span>
+        <textarea name="summary" rows="4">
+{{ actor.summary | toMarkdown }}</textarea
+        >
       </label>
-      <button type="submit" class="button">
-        Save Profile
-      </button>
+      <button type="submit" class="button">Save Profile</button>
     </form>
   </div>
 </details>
 
 <details>
-  <summary>
-    New Microblog Status
-  </summary>
+  <summary>New Microblog Status</summary>
   <form
     novalidate
     action="{{ actor.outbox.url }}"
     data-action="new-microblog-status"
     method="POST"
     data-actor-id="{{ actor.id }}"
-    data-followers-url="{{ actor.followers }}">
+    data-followers-url="{{ actor.followers }}"
+  >
     <label class="label">
-      <textarea name="content" rows="6" aria-label="Microblog Status"></textarea>
+      <textarea
+        name="content"
+        rows="6"
+        aria-label="Microblog Status"
+      ></textarea>
     </label>
-    <button type="submit">
-      Post
-    </button>
+    <button type="submit">Post</button>
   </form>
 </details>
 
 <details>
-  <summary>
-    Recent Microblog Statuses
-  </summary>
+  <summary>Recent Microblog Statuses</summary>
   <ul>
     {% for item in notes %}
-      <li>
-        {% if item.type === 'Tombstone' %}
-        <p>
-          <a href="{{ item.url }}">
-            Deleted.
-          </a>
-        </p>
-        {% else %}
-          <details>
-            <summary>
-              {{ item.content | striptags }}
-            </summary>
-            <div>
-              <h3>
-                Update Microblog Status
-              </h3>
-              <form
-                novalidate
-                action="{{ actor.outbox.url }}"
-                data-action="update-microblog-status"
-                method="POST"
-                data-actor-id="{{ actor.id }}"
-                data-followers-url="{{ actor.followers }}"
-                data-object-id="{{ item.id }}">
-                <textarea name="content" rows="6" aria-label="Microblog Status">{{ item.content | toMarkdown }}</textarea>
-                <button type="submit">
-                  Update
-                </button>
-              </form>
-              <form
-                novalidate
-                action="{{ actor.outbox.url }}"
-                data-action="delete-microblog-status"
-                method="POST"
-                data-actor-id="{{ actor.id }}"
-                data-followers-url="{{ actor.followers }}"
-                data-object-id="{{ item.id }}">
-                <button type="submit">
-                  Delete
-                </button>
-              </form>
-              <a href="{{ item.url }}">
-                View
-              </a>
-            </div>
-          </details>
-        {% endif %}
-      </li>
+    <li>
+      {% if item.type === 'Tombstone' %}
+      <p>
+        <a href="{{ item.url }}"> Deleted. </a>
+      </p>
+      {% else %}
+      <details>
+        <summary>{{ item.content | striptags }}</summary>
+        <div>
+          <h3>Update Microblog Status</h3>
+          <form
+            novalidate
+            action="{{ actor.outbox.url }}"
+            data-action="update-microblog-status"
+            method="POST"
+            data-actor-id="{{ actor.id }}"
+            data-followers-url="{{ actor.followers }}"
+            data-object-id="{{ item.id }}"
+          >
+            <textarea name="content" rows="6" aria-label="Microblog Status">
+{{ item.content | toMarkdown }}</textarea
+            >
+            <button type="submit">Update</button>
+          </form>
+          <form
+            novalidate
+            action="{{ actor.outbox.url }}"
+            data-action="delete-microblog-status"
+            method="POST"
+            data-actor-id="{{ actor.id }}"
+            data-followers-url="{{ actor.followers }}"
+            data-object-id="{{ item.id }}"
+          >
+            <button type="submit">Delete</button>
+          </form>
+          <a href="{{ item.url }}"> View </a>
+        </div>
+      </details>
+      {% endif %}
+    </li>
     {% endfor %}
   </ul>
 </details>
 
 <details>
-  <summary>
-    New Blog Post
-  </summary>
+  <summary>New Blog Post</summary>
   <form
     novalidate
     action="{{ actor.outbox.url }}"
     data-action="new-blog-post"
     method="POST"
     data-actor-id="{{ actor.id }}"
-    data-followers-url="{{ actor.followers }}">
+    data-followers-url="{{ actor.followers }}"
+  >
     <label class="label">
-      <span class="label-text">
-        Title
-      </span>
+      <span class="label-text"> Title </span>
       <textarea name="summary" rows="1"></textarea>
     </label>
     <label class="label">
-      <span class="label-text">
-        Body
-      </span>
+      <span class="label-text"> Body </span>
       <textarea name="content" rows="6"></textarea>
     </label>
-    <button type="submit">
-      Post
-    </button>
+    <button type="submit">Post</button>
   </form>
 </details>
 
 <details>
-  <summary>
-    Recent Blog Posts
-  </summary>
+  <summary>Recent Blog Posts</summary>
   <ul>
     {% for item in articles %}
-      <li>
-        {% if item.type === 'Tombstone' %}
-        <p>
-          <a href="{{ item.url }}">
-            Deleted.
-          </a>
-        </p>
-        {% else %}
-          <details>
-            <summary>
-              {{ item.summary | striptags }}
-            </summary>
-            <div>
-              <h3>
-                Update Blog Post
-              </h3>
-              <form
-                novalidate
-                action="{{ actor.outbox.url }}"
-                data-action="update-blog-post"
-                method="POST"
-                data-actor-id="{{ actor.id }}"
-                data-followers-url="{{ actor.followers }}"
-                data-object-id="{{ item.id }}">
-                <label class="label">
-                  <span class="label-text">
-                    Title
-                  </span>
-                  <textarea name="summary" rows="1">{{ item.summary | toMarkdown }}</textarea>
-                </label>
-                <label class="label">
-                  <span class="label-text">
-                    Body
-                  </span>
-                  <textarea name="content" rows="6">{{ item.content | toMarkdown }}</textarea>
-                </label>
-                <button type="submit">
-                  Update
-                </button>
-              </form>
-              <form
-                novalidate
-                action="{{ actor.outbox.url }}"
-                data-action="delete-blog-post"
-                method="POST"
-                data-actor-id="{{ actor.id }}"
-                data-followers-url="{{ actor.followers }}"
-                data-object-id="{{ item.id }}">
-                <button type="submit">
-                  Delete
-                </button>
-              </form>
-              <a href="{{ item.url }}">
-                View
-              </a>
-            </div>
-          </details>
-        {% endif %}
-      </li>
+    <li>
+      {% if item.type === 'Tombstone' %}
+      <p>
+        <a href="{{ item.url }}"> Deleted. </a>
+      </p>
+      {% else %}
+      <details>
+        <summary>{{ item.summary | striptags }}</summary>
+        <div>
+          <h3>Update Blog Post</h3>
+          <form
+            novalidate
+            action="{{ actor.outbox.url }}"
+            data-action="update-blog-post"
+            method="POST"
+            data-actor-id="{{ actor.id }}"
+            data-followers-url="{{ actor.followers }}"
+            data-object-id="{{ item.id }}"
+          >
+            <label class="label">
+              <span class="label-text"> Title </span>
+              <textarea name="summary" rows="1">
+{{ item.summary | toMarkdown }}</textarea
+              >
+            </label>
+            <label class="label">
+              <span class="label-text"> Body </span>
+              <textarea name="content" rows="6">
+{{ item.content | toMarkdown }}</textarea
+              >
+            </label>
+            <button type="submit">Update</button>
+          </form>
+          <form
+            novalidate
+            action="{{ actor.outbox.url }}"
+            data-action="delete-blog-post"
+            method="POST"
+            data-actor-id="{{ actor.id }}"
+            data-followers-url="{{ actor.followers }}"
+            data-object-id="{{ item.id }}"
+          >
+            <button type="submit">Delete</button>
+          </form>
+          <a href="{{ item.url }}"> View </a>
+        </div>
+      </details>
+      {% endif %}
+    </li>
     {% endfor %}
   </ul>
 </details>
 
 <details>
-  <summary>
-    Following
-  </summary>
+  <summary>Following</summary>
   <div>
     <form
       novalidate
@@ -284,28 +243,23 @@
       data-action="follow"
       method="POST"
       data-actor-id="{{ actor.id }}"
-      data-followers-url="{{ actor.followers }}">
+      data-followers-url="{{ actor.followers }}"
+    >
       <label>
-        <span>
-          Follow an Account by URL
-        </span>
+        <span> Follow an Account by URL </span>
         <input type="text" name="object" />
-        <button type="submit">
-          Submit
-        </button>
+        <button type="submit">Submit</button>
       </label>
     </form>
     <details open>
-      <summary>
-        All Following
-      </summary>
+      <summary>All Following</summary>
       <ul>
         {% for item in following %}
-          <li>
-            <a href="{{ item.url }}">
-              @{{ item.preferredUsername }}@{{ item.url | getDomain }}
-            </a>
-          </li>
+        <li>
+          <a href="{{ item.url }}">
+            @{{ item.preferredUsername }}@{{ item.url | getDomain }}
+          </a>
+        </li>
         {% endfor %}
       </ul>
     </details>
