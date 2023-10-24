@@ -1,5 +1,18 @@
 {
   "short_name": "Michael Puckett's Blog",
-  "name": "Michael Puckett's Blog",
-  "display": "standalone"
+  "name": "Michael Puckett",
+  "display": "standalone",
+  "theme_color": "#000000",
+  "background_color": "#000000",
+  "icons": [
+    {
+      "src": "favicon.png",
+      "sizes": "48x48",
+      "type": "image/png"
+    },
+    {
+      "src": "favicon.svg",
+      "sizes": "any"
+    }
+  ]
 }
