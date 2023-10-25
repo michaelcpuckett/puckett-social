@@ -1,14 +1,13 @@
 {% macro outboxPage() %}
-<!doctype html>
+<!DOCTYPE html>
 <meta charset="utf-8" />
 <title>{{ attributedTo.name }} - Latest Entries</title>
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <link rel="stylesheet" href="/public.css" />
 <link rel="stylesheet" href="/outbox.css" />
+<link rel="manifest" src="/manifest.json" />
 <header class="header">
-  <h1>
-    {{ attributedTo.name }}
-  </h1>
+  <h1>{{ attributedTo.name }}</h1>
   <nav>
     <a href="{{ attributedTo.url }}">
       @{{ attributedTo.preferredUsername}}@puckett.social
@@ -16,26 +15,22 @@
   </nav>
 </header>
 <main class="timeline">
-  {% for item in feed %}
-    {% if item.type == 'Article' %}
-      <article class="article">
-        <time datetime="{{ item.published | formatDate }}">
-          {{ item.published | formatDate }}
-        </time>
-        <a href="{{ item.url }}">
-          {{ item.summary | safe }}
-        </a>
-      </article>
-    {% elif item.type == 'Note' %}
-      <article class="note">
-        {{ item.content | safe }}
-        <a href="{{ item.url }}">
-          <time datetime="{{ item.published | formatDateTime }}">
-            {{ item.published | formatDateTimeForDisplay }}
-          </time>
-        </a>
-      </article>
-    {% endif %}
-  {% endfor %}
+  {% for item in feed %} {% if item.type == 'Article' %}
+  <article class="article">
+    <time datetime="{{ item.published | formatDate }}">
+      {{ item.published | formatDate }}
+    </time>
+    <a href="{{ item.url }}"> {{ item.summary | safe }} </a>
+  </article>
+  {% elif item.type == 'Note' %}
+  <article class="note">
+    {{ item.content | safe }}
+    <a href="{{ item.url }}">
+      <time datetime="{{ item.published | formatDateTime }}">
+        {{ item.published | formatDateTimeForDisplay }}
+      </time>
+    </a>
+  </article>
+  {% endif %} {% endfor %}
 </main>
 {% endmacro %}
