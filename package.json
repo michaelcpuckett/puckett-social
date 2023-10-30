@@ -6,11 +6,11 @@
   "scripts": {
     "dev": "nodemon ./src/index.ts",
     "format": "prettier --config .prettierrc \"**/*.ts\" --write",
-    "build:client": "parcel build",
+    "build:client": "parcel build parcel.html --target default",
     "build:server": "tsc --project ./tsconfig.server.json",
     "build": "npm run build:client && npm run build:server",
     "serve": "node ./lib/index.js",
-    "watch": "parcel"
+    "watch": "parcel parcel.html --target default"
   },
   "engines": {
     "node": ">=19"
@@ -18,11 +18,7 @@
   "license": "MIT",
   "targets": {
     "default": {
-      "distDir": "./static",
-      "source": [
-        "./pages/login.ts",
-        "./pages/home.ts"
-      ]
+      "distDir": "./static"
     }
   },
   "dependencies": {
