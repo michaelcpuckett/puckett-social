@@ -299,7 +299,7 @@ import { JSDOM } from 'jsdom';
                 },
               )
                 .then((res) => {
-                  console.log(t.entries(bodyJson)));
+                  console.log(Object.entries(bodyJson));
                   console.log(res.status);
                   return res.json();
                 })
