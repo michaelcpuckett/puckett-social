@@ -7,7 +7,7 @@
     "dev": "nodemon ./src/index.ts",
     "format": "prettier --config .prettierrc \"**/*.ts\" --write",
     "build": "parcel build && tsc --project tsconfig.json",
-    "serve": "node ./lib/index.js",
+    "serve": "ts-node ./src/index.ts",
     "watch": "parcel"
   },
   "engines": {
