@@ -297,10 +297,15 @@ import { JSDOM } from 'jsdom';
                   },
                   body: formBody,
                 },
-              ).then((res) => {
-                console.log(formBody.get('notification'));
-                console.log(res.status);
-              });
+              )
+                .then((res) => {
+                  console.log(formBody.get('notification'));
+                  console.log(res.status);
+                  return res.text();
+                })
+                .then((text) => {
+                  console.log(text);
+                });
             };
 
             if (isType(this.activity, AP.ActivityTypes.CREATE)) {
