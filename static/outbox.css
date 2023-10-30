@@ -1,19 +1,19 @@
 .note {
-  border-radius: 1em;
+  border-radius: 1rem;
   border: 1px solid;
-  padding: 2em;
+  padding: 2rem;
 }
 
 .timeline {
   display: grid;
-  gap: 3em;
-  padding-top: 1.5em;
-  padding-bottom: 1.5em;
+  gap: 3rem;
+  padding-top: 1.5rem;
+  padding-bottom: 1.5rem;
 }
 
 article {
   display: grid;
-  gap: 1em;
+  gap: 1rem;
 }
 
 .article {
@@ -22,5 +22,5 @@ article {
 
 p {
   margin: 0;
-  font-size: 1.5em;
+  font-size: 1.5rem;
 }

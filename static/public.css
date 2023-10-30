@@ -1,19 +1,24 @@
 * {
   box-sizing: border-box;
+  -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-text-size-adjust: 100%;
+}
+
+:root {
+  font-size: 1.333em;
+  line-height: 1.667;
+  color-scheme: dark;
 }
 
 body {
   font-family: system-ui, sans-serif;
-  background: rgb(29, 24, 24);
-  color: rgb(255, 255, 255);
-  color-scheme: dark;
-  font-size: 1.333em;
-  line-height: 1.667;
-  margin: 1em;
+  margin: 1rem;
+  hyphens: auto;
 }
 
-a {
-  color: pink;
+:any-link {
+  color: deepskyblue;
 }
 
 time {
@@ -27,7 +32,7 @@ h1 {
 .header {
   display: grid;
   grid-auto-flow: column;
-  gap: 1em;
+  gap: 1rem;
   align-items: center;
   justify-content: space-between;
 }
@@ -37,12 +42,12 @@ header,
 main,
 aside,
 footer {
-  max-width: 640px;
+  width: min(100% - 2rem, 640px);
   margin: 0 auto;
 }
 
 hr {
-  margin: 1em auto;
+  margin: 1rem auto;
 }
 
 .avatar {
