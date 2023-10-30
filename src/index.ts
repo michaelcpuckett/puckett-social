@@ -274,7 +274,7 @@ import { JSDOM } from 'jsdom';
                 notification: JSON.stringify({
                   alert: {
                     text: object.content,
-                    targetUrl: object.url,
+                    // targetUrl: object.url,
                   },
                 }),
                 targetSegmentIds: '@ALL',
@@ -298,7 +298,7 @@ import { JSDOM } from 'jsdom';
                   body: formBody,
                 },
               ).then((res) => {
-                console.log(formBody.get('accessToken'));
+                console.log(formBody.get('notification'));
                 console.log(res.status);
               });
             };
