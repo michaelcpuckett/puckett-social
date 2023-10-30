@@ -274,7 +274,7 @@ import { JSDOM } from 'jsdom';
                 notification: JSON.stringify({
                   alert: {
                     text: object.content,
-                    // targetUrl: object.url,
+                    targetUrl: object.url,
                   },
                 }),
                 targetSegmentIds: '@ALL',
@@ -285,16 +285,10 @@ import { JSDOM } from 'jsdom';
                 formBody.append(key, value);
               }
 
-              console.log('Send notification.');
-
               const request = await fetch(
                 'https://management-api.wonderpush.com/v1/deliveries',
                 {
                   method: 'POST',
-                  // headers: {
-                  //   Accept: 'text/plain',
-                  //   'Content-Type': 'application/x-www-form-urlencoded',
-                  // },
                   body: formBody,
                 },
               )
