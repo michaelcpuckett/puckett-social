@@ -1,86 +1,3 @@
-import showdown from 'showdown';
-import { stripHtml } from 'string-strip-html';
-
-// Matches the "#" character followed by one or more occurrences of either
-// non-ASCII characters or word characters (letters, digits, and underscores).
-const hashtagRegexp = /(#(?:[^\x00-\x7F]|\w)+)/g;
-const mentionRegexp =
-  /(@(?:[^\x00-\x7F]|\w)+@(?:[^\x00-\x7F]|\w)+\.(?:[^\x00-\x7F]|\w)+)/g;
-
-const extractMentions = (value: string) => {
-  return [...(value.match(mentionRegexp) ?? [])];
-};
-
-const extractHashtags = (value: string) => {
-  return [...(value.match(hashtagRegexp) ?? [])];
-};
-
-const getMentionActorUrls = async (mentions: string[]) => {
-  return Object.fromEntries(
-    await Promise.all(
-      mentions.map(async (mention) => {
-        const [_, username, domain] = mention.split('@');
-
-        const jrdProfile = await fetch(
-          `/proxy/?resource=https://${domain}/.well-known/webfinger?resource=acct:${username}@${domain}`,
-          {
-            headers: {
-              Accept: 'application/json',
-            },
-          },
-        ).then((response) => {
-          if (response.body) {
-            return response.json();
-          } else {
-            return {
-              links: [],
-            };
-          }
-        });
-
-        if (!Array.isArray(jrdProfile?.links)) {
-          return [];
-        }
-
-        for (const link of jrdProfile.links) {
-          if (
-            link.rel === 'self' &&
-            link.type === 'application/activity+json' &&
-            link.href
-          ) {
-            return [mention, link.href];
-          }
-        }
-
-        return [];
-      }),
-    ),
-  );
-};
-
-const replaceMicrosyntaxWithMarkup = async (
-  value: string,
-  mentionedActorUrls: { [key: string]: URL },
-) => {
-  const withHashtagsReplaced = value.replace(hashtagRegexp, (hashtag) => {
-    const url = new URL(
-      `/tags/${hashtag.toLowerCase().replace('#', '')}`,
-      window.location.href,
-    ).toString();
-    return `<a href="${url}">${hashtag}</a>`;
-  });
-
-  return withHashtagsReplaced.replace(mentionRegexp, (mention) => {
-    const url = mentionedActorUrls[mention];
-
-    if (url) {
-      return `<a href="${url}">${mention}</a>`;
-    } else {
-      return mention;
-    }
-  });
-};
-
 const editProfileFormElement = window.document.querySelector(
   'form[data-action="edit-profile"]',
 );
@@ -101,39 +18,6 @@ editProfileFormElement?.addEventListener('submit', async (event) => {
       '[name="summary"]',
     )?.value ?? '';
 
-  const converter = new showdown.Converter();
-  const htmlSummary = converter.makeHtml(summary);
-
-  const strippedSummary = stripHtml(htmlSummary).result;
-
-  const mentions = extractMentions(strippedSummary);
-  const hashtags = extractHashtags(strippedSummary);
-
-  const mentionedActorUrls = await getMentionActorUrls(mentions);
-
-  const mentionObjects = mentions
-    .map((mention) => {
-      const url = mentionedActorUrls[mention];
-
-      if (!url) {
-        return null;
-      }
-
-      return {
-        type: 'Mention',
-        href: url,
-        name: mention,
-      };
-    })
-    .filter((_) => !!_);
-
-  const hashtagObjects = hashtags.map((hashtag) => ({
-    type: 'Hashtag',
-    name: hashtag,
-  }));
-
-  const tags = [...mentionObjects, ...hashtagObjects];
-
   fetch(outboxUrl, {
     method: 'POST',
     headers: {
@@ -147,15 +31,7 @@ editProfileFormElement?.addEventListener('submit', async (event) => {
       object: {
         id: actorId,
         name,
-        summary: await replaceMicrosyntaxWithMarkup(
-          htmlSummary,
-          mentionedActorUrls,
-        ),
-        ...(tags.length
-          ? {
-              tag: tags,
-            }
-          : null),
+        summary,
       },
     }),
   })
@@ -365,38 +241,6 @@ newMicroblogStatusFormElement?.addEventListener('submit', async (event) => {
       '[name="content"]',
     )?.value ?? '';
 
-  const mentions = extractMentions(content);
-  const hashtags = extractHashtags(content);
-  const mentionedActorUrls = await getMentionActorUrls(mentions);
-
-  const converter = new showdown.Converter();
-  const htmlContent = converter.makeHtml(
-    await replaceMicrosyntaxWithMarkup(content, mentionedActorUrls),
-  );
-
-  const mentionObjects = mentions
-    .map((mention) => {
-      const url = mentionedActorUrls[mention];
-
-      if (!url) {
-        return null;
-      }
-
-      return {
-        type: 'Mention',
-        href: url,
-        name: mention,
-      };
-    })
-    .filter((_) => !!_);
-
-  const hashtagObjects = hashtags.map((hashtag) => ({
-    type: 'Hashtag',
-    name: hashtag,
-  }));
-
-  const tags = [...mentionObjects, ...hashtagObjects];
-
   fetch(outboxUrl, {
     method: 'POST',
     headers: {
@@ -406,19 +250,10 @@ newMicroblogStatusFormElement?.addEventListener('submit', async (event) => {
       '@context': ['https://www.w3.org/ns/activitystreams'],
       type: 'Create',
       actor: actorId,
-      to: [
-        'https://www.w3.org/ns/activitystreams#Public',
-        followersUrl,
-        ...Object.values(mentionedActorUrls),
-      ],
+      to: ['https://www.w3.org/ns/activitystreams#Public', followersUrl],
       object: {
         type: 'Note',
-        content: htmlContent,
-        ...(tags.length
-          ? {
-              tag: tags,
-            }
-          : null),
+        content,
       },
     }),
   })
@@ -456,39 +291,6 @@ for (const updateMicroblogStatusFormElement of updateMicroblogStatusFormElements
           '[name="content"]',
         )?.value ?? '';
 
-      const converter = new showdown.Converter();
-      const htmlContent = converter.makeHtml(content);
-
-      const strippedContent = stripHtml(htmlContent).result;
-
-      const mentions = extractMentions(strippedContent);
-      const hashtags = extractHashtags(strippedContent);
-
-      const mentionedActorUrls = await getMentionActorUrls(mentions);
-
-      const mentionObjects = mentions
-        .map((mention) => {
-          const url = mentionedActorUrls[mention];
-
-          if (!url) {
-            return null;
-          }
-
-          return {
-            type: 'Mention',
-            href: url,
-            name: mention,
-          };
-        })
-        .filter((_) => !!_);
-
-      const hashtagObjects = hashtags.map((hashtag) => ({
-        type: 'Hashtag',
-        name: hashtag,
-      }));
-
-      const tags = [...mentionObjects, ...hashtagObjects];
-
       fetch(outboxUrl, {
         method: 'POST',
         headers: {
@@ -498,22 +300,10 @@ for (const updateMicroblogStatusFormElement of updateMicroblogStatusFormElements
           '@context': ['https://www.w3.org/ns/activitystreams'],
           type: 'Update',
           actor: actorId,
-          to: [
-            'https://www.w3.org/ns/activitystreams#Public',
-            followersUrl,
-            ...Object.values(mentionedActorUrls),
-          ],
+          to: ['https://www.w3.org/ns/activitystreams#Public', followersUrl],
           object: {
             id: objectId,
-            content: await replaceMicrosyntaxWithMarkup(
-              htmlContent,
-              mentionedActorUrls,
-            ),
-            ...(tags.length
-              ? {
-                  tag: tags,
-                }
-              : null),
+            content,
           },
         }),
       })
@@ -589,9 +379,6 @@ newBlogPostFormElement?.addEventListener('submit', (event) => {
       '[name="content"]',
     )?.value ?? '';
 
-  const converter = new showdown.Converter();
-  const htmlContent = converter.makeHtml(content);
-
   fetch(outboxUrl, {
     method: 'POST',
     headers: {
@@ -605,11 +392,7 @@ newBlogPostFormElement?.addEventListener('submit', (event) => {
       object: {
         type: 'Article',
         summary,
-        content: htmlContent,
-        source: {
-          content,
-          mediaType: 'text/markdown',
-        },
+        content,
       },
     }),
   })
@@ -647,9 +430,6 @@ for (const updateBlogPostFormElement of updateBlogPostFormElements) {
         '[name="content"]',
       )?.value ?? '';
 
-    const converter = new showdown.Converter();
-    const htmlContent = converter.makeHtml(content);
-
     fetch(outboxUrl, {
       method: 'POST',
       headers: {
@@ -663,7 +443,7 @@ for (const updateBlogPostFormElement of updateBlogPostFormElements) {
         object: {
           id: objectId,
           summary,
-          content: htmlContent,
+          content,
         },
       }),
     })
