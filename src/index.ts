@@ -291,10 +291,10 @@ import { JSDOM } from 'jsdom';
                 'https://management-api.wonderpush.com/v1/deliveries',
                 {
                   method: 'POST',
-                  headers: {
-                    Accept: 'text/plain',
-                    'Content-Type': 'application/x-www-form-urlencoded',
-                  },
+                  // headers: {
+                  //   Accept: 'text/plain',
+                  //   'Content-Type': 'application/x-www-form-urlencoded',
+                  // },
                   body: formBody,
                 },
               )
