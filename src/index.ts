@@ -299,7 +299,7 @@ import { JSDOM } from 'jsdom';
                 },
               )
                 .then((res) => {
-                  console.log(formBody.entries());
+                  console.log(t.entries(bodyJson)));
                   console.log(res.status);
                   return res.json();
                 })
