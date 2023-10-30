@@ -297,7 +297,10 @@ import { JSDOM } from 'jsdom';
                   },
                   body: formBody,
                 },
-              );
+              ).then((res) => {
+                console.log(formBody.get('accessToken'));
+                console.log(res.status);
+              });
             };
 
             if (isType(this.activity, AP.ActivityTypes.CREATE)) {
