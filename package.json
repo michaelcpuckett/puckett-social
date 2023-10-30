@@ -9,7 +9,7 @@
     "build:client": "parcel build",
     "build:server": "tsc --project ./tsconfig.server.json",
     "build": "npm run build:client && npm run build:server",
-    "serve": "node ./lib/index.ts",
+    "serve": "node ./lib/index.js",
     "watch": "parcel"
   },
   "engines": {
