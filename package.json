@@ -6,7 +6,9 @@
   "scripts": {
     "dev": "nodemon ./src/index.ts",
     "format": "prettier --config .prettierrc \"**/*.ts\" --write",
-    "build": "parcel build && tsc --project ./tsconfig.server.json",
+    "build:client": "parcel build",
+    "build:server": "tsc --project ./tsconfig.server.json",
+    "build": "npm run build:client && npm run build:server",
     "serve": "node ./lib/index.ts",
     "watch": "parcel"
   },
