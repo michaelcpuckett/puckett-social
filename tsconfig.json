@@ -11,14 +11,14 @@
     "removeComments": true,
     "noLib": false,
     "lib": ["ESNext", "DOM"],
-    "target": "ES2015",
-    "outDir": "../static"
+    "target": "ESNext",
+    "outDir": "./static"
   },
   "exclude": [
-    "../node_modules"
+    "./node_modules"
   ],
   "include": [
-    "home.ts",
-    "login.ts"
+    "./pages/home.ts",
+    "./pages/login.ts"
   ]
 }

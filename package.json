@@ -6,9 +6,9 @@
   "scripts": {
     "dev": "nodemon ./src/index.ts",
     "format": "prettier --config .prettierrc \"**/*.ts\" --write",
-    "build": "parcel build --dist-dir=static && tsc --project src/tsconfig.json",
+    "build": "parcel build && tsc --project tsconfig.json",
     "serve": "node ./lib/index.js",
-    "watch": "parcel --dist-dir=static"
+    "watch": "parcel"
   },
   "engines": {
     "node": ">=19"
@@ -16,6 +16,7 @@
   "license": "MIT",
   "targets": {
     "default": {
+      "distDir": "./static",
       "source": [
         "./pages/login.ts",
         "./pages/home.ts"

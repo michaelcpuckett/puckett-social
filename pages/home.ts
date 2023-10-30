@@ -432,11 +432,9 @@ newMicroblogStatusFormElement?.addEventListener('submit', async (event) => {
     });
 });
 
-const updateMicroblogStatusFormElements = [
-  ...window.document.querySelectorAll(
-    '[data-action="update-microblog-status"]',
-  ),
-];
+const updateMicroblogStatusFormElements = Array.from(
+  window.document.querySelectorAll('[data-action="update-microblog-status"]'),
+);
 
 for (const updateMicroblogStatusFormElement of updateMicroblogStatusFormElements) {
   updateMicroblogStatusFormElement?.addEventListener(
@@ -531,11 +529,9 @@ for (const updateMicroblogStatusFormElement of updateMicroblogStatusFormElements
   );
 }
 
-const deleteMicroblogStatusFormElements = [
-  ...window.document.querySelectorAll(
-    '[data-action="delete-microblog-status"]',
-  ),
-];
+const deleteMicroblogStatusFormElements = Array.from(
+  window.document.querySelectorAll('[data-action="delete-microblog-status"]'),
+);
 
 for (const deleteMicroblogStatusFormElement of deleteMicroblogStatusFormElements) {
   deleteMicroblogStatusFormElement.addEventListener('submit', (event) => {
@@ -627,9 +623,9 @@ newBlogPostFormElement?.addEventListener('submit', (event) => {
     });
 });
 
-const updateBlogPostFormElements = [
-  ...window.document.querySelectorAll('[data-action="update-blog-post"]'),
-];
+const updateBlogPostFormElements = Array.from(
+  window.document.querySelectorAll('[data-action="update-blog-post"]'),
+);
 
 for (const updateBlogPostFormElement of updateBlogPostFormElements) {
   updateBlogPostFormElement.addEventListener('submit', (event) => {
@@ -682,9 +678,9 @@ for (const updateBlogPostFormElement of updateBlogPostFormElements) {
   });
 }
 
-const deleteBlogPostFormElements = [
-  ...window.document.querySelectorAll('[data-action="delete-blog-post"]'),
-];
+const deleteBlogPostFormElements = Array.from(
+  window.document.querySelectorAll('[data-action="delete-blog-post"]'),
+);
 
 for (const deleteBlogPostFormElement of deleteBlogPostFormElements) {
   deleteBlogPostFormElement.addEventListener('submit', (event) => {
@@ -722,9 +718,9 @@ for (const deleteBlogPostFormElement of deleteBlogPostFormElements) {
   });
 }
 
-const likeFormElements = [
-  ...window.document.querySelectorAll('[data-action="like"]'),
-];
+const likeFormElements = Array.from(
+  window.document.querySelectorAll('[data-action="like"]'),
+);
 
 for (const likeFormElement of likeFormElements) {
   likeFormElement.addEventListener('submit', (event) => {
