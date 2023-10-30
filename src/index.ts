@@ -1,3 +1,5 @@
+// <reference lib="dom" />
+
 import * as dotenv from 'dotenv'; // see https://github.com/motdotla/dotenv#how-do-i-use-dotenv-with-import
 dotenv.config();
 
@@ -266,6 +268,38 @@ import { JSDOM } from 'jsdom';
            * Add content to streams manually.
            */
           async handleOutboxSideEffect() {
+            const sendNotification = async (object: AP.ExtendedObject) => {
+              const formBody = new FormData();
+              const bodyJson = {
+                notification: JSON.stringify({
+                  alert: {
+                    text: object.content,
+                    targetUrl: object.url,
+                  },
+                }),
+                targetSegmentIds: '@ALL',
+                accessToken: process.env.AP_NOTIFICATION_TOKEN ?? '',
+              };
+
+              for (const [key, value] of Object.entries(bodyJson)) {
+                formBody.append(key, value);
+              }
+
+              console.log('Send notification.');
+
+              await fetch(
+                'https://management-api.wonderpush.com/v1/deliveries',
+                {
+                  method: 'POST',
+                  headers: {
+                    Accept: 'text/plain',
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                  },
+                  body: formBody,
+                },
+              );
+            };
+
             if (isType(this.activity, AP.ActivityTypes.CREATE)) {
               assertIsApType<AP.Create>(this.activity, AP.ActivityTypes.CREATE);
               assertIsApExtendedObject(this.activity.object);
@@ -277,6 +311,8 @@ import { JSDOM } from 'jsdom';
                   ),
                   getId(this.activity.object),
                 );
+
+                await sendNotification(this.activity.object);
               } else if (
                 isType(this.activity.object, AP.ExtendedObjectTypes.ARTICLE)
               ) {

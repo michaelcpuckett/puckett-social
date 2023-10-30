@@ -2,7 +2,6 @@
   "compilerOptions": {
     "module": "commonjs",
     "esModuleInterop": true,
-    "target": "ESNext",
     "jsx": "react",
     "skipLibCheck": true,
     "moduleResolution": "node",
@@ -11,9 +10,8 @@
     "noImplicitAny": false,
     "removeComments": true,
     "noLib": false,
-    "lib": [
-      "ESNext"
-    ],
+    "lib": ["es2023", "DOM"],
+    "target": "es2022",
     "outDir": "../lib"
   },
   "exclude": [
