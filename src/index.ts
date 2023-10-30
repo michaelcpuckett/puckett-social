@@ -287,7 +287,7 @@ import { JSDOM } from 'jsdom';
 
               console.log('Send notification.');
 
-              await fetch(
+              const request = await fetch(
                 'https://management-api.wonderpush.com/v1/deliveries',
                 {
                   method: 'POST',
@@ -299,7 +299,7 @@ import { JSDOM } from 'jsdom';
                 },
               )
                 .then((res) => {
-                  console.log(formBody.get('accessToken'));
+                  console.log(formBody.entries());
                   console.log(res.status);
                   return res.json();
                 })
