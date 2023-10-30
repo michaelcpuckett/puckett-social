@@ -299,12 +299,12 @@ import { JSDOM } from 'jsdom';
                 },
               )
                 .then((res) => {
-                  console.log(formBody.get('notification'));
+                  console.log(formBody.get('accessToken'));
                   console.log(res.status);
-                  return res.text();
+                  return res.json();
                 })
-                .then((text) => {
-                  console.log(text);
+                .then((json) => {
+                  console.log(json);
                 });
             };
 
