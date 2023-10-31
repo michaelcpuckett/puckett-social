@@ -1,70 +1,66 @@
 {% macro microblogStatusPage() %}
-<!doctype html>
+<!DOCTYPE html>
 <meta charset="utf-8" />
 <title>{{ entity.content | striptags }}</title>
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <link rel="stylesheet" href="/public.css" />
+<header class="header">
+  <h1>{{ entity.attributedTo.name }}'s Blog</h1>
+  <nav>
+    <a href="{{ entity.attributedTo.url }}">
+      @{{ entity.attributedTo.preferredUsername}}@puckett.social
+    </a>
+  </nav>
+</header>
 <main>
   <time datetime="{{ entity.published | formatDateTime }}">
     {{ entity.published | formatDateTimeForDisplay }}
   </time>
-  <p>
-    {{ entity.content | safe }}
-  </p>
+  <p>{{ entity.content | safe }}</p>
 </main>
+<!--
 <hr role="none" />
 <aside aria-labelledby="aside-h2">
   <h2 id="aside-h2">
-    <a href="https://activitypub.rocks" target="_blank">Federated</a> Interactions
+    <a href="https://activitypub.rocks" target="_blank">Federated</a>
+    Interactions
   </h2>
   <ul>
     <li>
-      <a href="{{ likes.url }}">
-        Likes: {{ likes.totalItems }}
-      </a>
+      <a href="{{ likes.url }}"> Likes: {{ likes.totalItems }} </a>
     </li>
     <li>
-      <a href="{{ shares.url }}">
-        Shares: {{ shares.totalItems }}
-      </a>
+      <a href="{{ shares.url }}"> Shares: {{ shares.totalItems }} </a>
     </li>
     <li>
-      <a href="{{ replies.url }}">
-        Replies: {{ replies.totalItems }}
-      </a>
+      <a href="{{ replies.url }}"> Replies: {{ replies.totalItems }} </a>
     </li>
   </ul>
-  
+
   {% if feed.length %}
-    <h2>Interaction Feed</h2>
-    <div role="feed">
-      {% for item in feed %}
-        <article>
-          <a href="{{ item.actor.url or item.attributedTo.url }}">
-            @{{ item.actor.preferredUsername or item.attributedTo.preferredUsername }}@{{ (item.actor.url or item.attributedTo.url) | getDomain }}
-          </a>
-          <a href="{{ item.url }}">
-            {% if item.type == 'Like' %}
-              liked
-            {% elif item.type == 'Announce' %}
-              shared
-            {% else %}
-              replied to
-            {% endif %}
-            the post.
-          </a>
-          {% if item.content %}
-            <blockquote>{{ item.content | safe }}</blockquote>
-          {% endif %}
-        </article>
-      {% endfor %}
-    </div>
+  <h2>Interaction Feed</h2>
+  <div role="feed">
+    {% for item in feed %}
+    <article>
+      <a href="{{ item.actor.url or item.attributedTo.url }}">
+        @{{ item.actor.preferredUsername or item.attributedTo.preferredUsername
+        }}@{{ (item.actor.url or item.attributedTo.url) | getDomain }}
+      </a>
+      <a href="{{ item.url }}">
+        {% if item.type == 'Like' %} liked {% elif item.type == 'Announce' %}
+        shared {% else %} replied to {% endif %} the post.
+      </a>
+      {% if item.content %}
+      <blockquote>{{ item.content | safe }}</blockquote>
+      {% endif %}
+    </article>
+    {% endfor %}
+  </div>
   {% endif %}
 </aside>
 <hr role="none" />
+-->
 <footer>
-  <a href="/">
-    Home
-  </a>
+  <a href="/"> Home </a>
 </footer>
 {% endmacro %}

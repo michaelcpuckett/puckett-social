@@ -273,10 +273,15 @@ import { JSDOM } from 'jsdom';
               const bodyJson = {
                 notification: JSON.stringify({
                   alert: {
+                    title: 'New post!',
                     text: object.content,
                     targetUrl: object.url,
+                    web: {
+                      icon: 'https://michaelpuckett.engineer/favicon.svg',
+                    },
                   },
                 }),
+                campaignId: '01he2tc904ogbpks',
                 targetSegmentIds: '@ALL',
                 accessToken: process.env.AP_NOTIFICATION_TOKEN ?? '',
               };
@@ -285,19 +290,18 @@ import { JSDOM } from 'jsdom';
                 formBody.append(key, value);
               }
 
-              const request = await fetch(
+              await fetch(
                 'https://management-api.wonderpush.com/v1/deliveries',
                 {
                   method: 'POST',
                   body: formBody,
                 },
               )
-                .then((res) => {
-                  console.log(Object.entries(bodyJson));
-                  console.log(res.status);
-                  return res.json();
+                .then(async (res) => {
+                  return [res.status, await res.json()];
                 })
-                .then((json) => {
+                .then(([status, json]) => {
+                  console.log('Notification status', status);
                   console.log(json);
                 });
             };
