@@ -150,12 +150,25 @@ import { JSDOM } from 'jsdom';
   });
 
   app.get('/comments', async (req, res, next) => {
-    const commentsEntity = await mongoDbAdapter.findEntityById(
-      new URL('https://puckett.social/comments/'),
-    );
+    const url = 'https://puckett.social/comments/';
+    const commentsEntity = await mongoDbAdapter.findEntityById(new URL(url));
 
-    if (!commentsEntity) {
-      return '';
+    if (
+      !commentsEntity ||
+      !isTypeOf(commentsEntity, AP.ExtendedObjectTypes.COLLECTION)
+    ) {
+      const newEntity = await mongoDbAdapter.saveEntity({
+        id: url,
+        url,
+        type: AP.ExtendedObjectTypes.COLLECTION,
+        name: 'Comments',
+        published: new Date(),
+        items: [],
+      });
+
+      return nunjucks.render('comments.html', {
+        comments: [],
+      });
     }
 
     const comments = await mongoDbAdapter.getCollectionItems(commentsEntity);
