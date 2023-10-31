@@ -161,11 +161,7 @@ import { JSDOM } from 'jsdom';
       url: id,
       type: AP.ExtendedObjectTypes.NOTE,
       content,
-      attributedTo: {
-        type: AP.ActorTypes.PERSON,
-        url: actorUrl,
-        id: actorUrl,
-      },
+      attributedTo: actorUrl,
     };
 
     await mongoDbAdapter.saveEntity(comment);
