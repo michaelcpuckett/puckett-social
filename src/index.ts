@@ -180,7 +180,7 @@ import { JSDOM } from 'jsdom';
         alert: {
           title: 'New comment to approve',
           text: 'From ' + actor,
-          targetUrl: 'https://puckett.social/comments/',
+          targetUrl: id,
           web: {
             icon: 'https://michaelpuckett.engineer/favicon.svg',
           },
