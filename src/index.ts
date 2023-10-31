@@ -153,7 +153,11 @@ import { JSDOM } from 'jsdom';
     const body = JSON.parse(await streamToString(req));
     const content = body.content;
     const actor = body.actor;
-    const id = new URL(`https://puckett.social/comment/${Date.now()}`);
+    const id = new URL(
+      `https://puckett.social/posts/${new Date().getFullYear()}/${
+        new Date().getMonth() + 1
+      }/${new Date().getDate()}/${Date.now()}`,
+    );
     const actorUrl = new URL(`https://puckett.social/commenter/${actor}`);
 
     const comment: AP.Note = {
