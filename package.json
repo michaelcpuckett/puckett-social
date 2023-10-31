@@ -3,22 +3,30 @@
   "version": "1.0.0",
   "author": "Michael Puckett <michaelcpuckett@gmail.com>",
   "main": "index.js",
+  "private": true,
+  "workspaces": [
+    "packages/*"
+  ],
   "scripts": {
     "dev": "nodemon ./src/index.ts",
     "format": "prettier --config .prettierrc \"**/*.ts\" --write",
-    "build:client": "parcel build parcel.html --target default",
+    "build:client": "parcel build --target client --no-content-hash",
     "build:server": "tsc --project ./tsconfig.server.json",
     "build": "npm run build:client && npm run build:server",
     "serve": "node ./lib/index.js",
-    "watch": "parcel parcel.html --target default"
+    "watch": "parcel --target client --no-content-hash"
   },
   "engines": {
     "node": ">=19"
   },
   "license": "MIT",
   "targets": {
-    "default": {
-      "distDir": "./static"
+    "client": {
+      "distDir": "./static",
+      "source": [
+        "./pages/login.ts",
+        "./pages/home.ts"
+      ]
     }
   },
   "dependencies": {
@@ -40,6 +48,7 @@
     "string-strip-html": "^8.4.0"
   },
   "devDependencies": {
+    "@parcel/packager-ts": "^2.8.3",
     "@types/express": "^4.17.17",
     "@types/nunjucks": "^3.2.2",
     "@types/showdown": "^2.0.0",

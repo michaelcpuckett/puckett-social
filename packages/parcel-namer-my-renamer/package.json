@@ -1,0 +1,8 @@
+{
+  "name": "parcel-namer-my-renamer",
+  "version": "0.0.1",
+  "main": "index.js",
+  "engines": {
+    "parcel": ">=2"
+  }
+}
