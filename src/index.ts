@@ -149,9 +149,11 @@ import { JSDOM } from 'jsdom';
     },
   });
 
-  app.get('/comments/', async (req, res, next) => {
+  app.get('/comments', async (req, res, next) => {
     const comments = await mongoDbAdapter.getCollectionItems(
-      new URL('https://puckett.social/comments/'),
+      await mongoDbAdapter.findEntityById(
+        new URL('https://puckett.social/comments/'),
+      ),
     );
 
     return nunjucks.render('comments.html', {
