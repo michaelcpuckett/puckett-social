@@ -31,4 +31,18 @@
   </article>
   {% endif %} {% endfor %}
 </main>
+<script
+  src="https://cdn.by.wonderpush.com/sdk/1.1/wonderpush-loader.min.js"
+  async
+></script>
+<script>
+  window.WonderPush = window.WonderPush || [];
+  WonderPush.push([
+    'init',
+    {
+      webKey:
+        'a543112c9d6a3917c10ea87bb49caa5b44f3dafe8b8786667304d40118a33008',
+    },
+  ]);
+</script>
 {% endmacro %}
