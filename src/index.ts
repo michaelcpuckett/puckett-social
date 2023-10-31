@@ -166,7 +166,7 @@ import { JSDOM } from 'jsdom';
       type: AP.ExtendedObjectTypes.NOTE,
       content,
       attributedTo: actorUrl,
-      published: Date.now(),
+      published: new Date(),
     };
 
     await mongoDbAdapter.saveEntity(comment);
