@@ -150,11 +150,15 @@ import { JSDOM } from 'jsdom';
   });
 
   app.get('/comments', async (req, res, next) => {
-    const comments = await mongoDbAdapter.getCollectionItems(
-      await mongoDbAdapter.findEntityById(
-        new URL('https://puckett.social/comments/'),
-      ),
+    const commentsEntity = await mongoDbAdapter.findEntityById(
+      new URL('https://puckett.social/comments/'),
     );
+
+    if (!commentsEntity) {
+      return '';
+    }
+
+    const comments = await mongoDbAdapter.getCollectionItems(commentsEntity);
 
     return nunjucks.render('comments.html', {
       comments,
