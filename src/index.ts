@@ -149,6 +149,16 @@ import { JSDOM } from 'jsdom';
     },
   });
 
+  app.get('/comments/', async (req, res, next) => {
+    const comments = await mongoDbAdapter.getCollectionItems(
+      new URL('https://puckett.social/comments/'),
+    );
+
+    return nunjucks.render('comments.html', {
+      comments,
+    });
+  });
+
   app.post('/api/comments', async (req, res, next) => {
     const body = JSON.parse(await streamToString(req));
     const content = body.content;
