@@ -14,6 +14,22 @@
   </time>
   <p>{{ entity.content | safe }}</p>
 </main>
+<hr role="none" />
+<aside aria-labelledby="comment-h2">
+  <h2 id="comment-h2">Comment</h2>
+  <form id="comment-form">
+    <label for="actor">
+      Email Address
+      <input name="actor" type="email" />
+    </label>
+    <label for="comment">
+      Comment
+      <textarea name="content"></textarea>
+    </label>
+    <button type="submit">Submit</button>
+    <output></output>
+  </form>
+</aside>
 <!--
 <hr role="none" />
 <aside aria-labelledby="aside-h2">

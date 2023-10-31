@@ -1,0 +1,2 @@
+(()=>{const e=window.document.querySelector("#comment-form");e&&e.addEventListener("submit",(t=>{t.preventDefault();const n=e.querySelector('input[name="content"]'),o=e.querySelector('input[name="actor"]'),c=n?.value,r=o?.value;window.fetch("/api/comments",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({content:c,actor:r})}).then((()=>{const t=e.querySelector("output");t&&(t.textContent="Success!")}))}))})();
+//# sourceMappingURL=post.js.map

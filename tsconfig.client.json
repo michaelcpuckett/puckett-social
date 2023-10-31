@@ -19,6 +19,7 @@
   ],
   "include": [
     "./pages/home.ts",
-    "./pages/login.ts"
+    "./pages/login.ts",
+    "./pages/post.ts"
   ]
 }
