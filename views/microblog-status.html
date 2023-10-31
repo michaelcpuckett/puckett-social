@@ -4,6 +4,7 @@
 <title>{{ entity.content | striptags }}</title>
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <link rel="stylesheet" href="/public.css" />
+<link rel="manifest" href="/manifest.json" />
 <header class="header">
   <h1>Mike Puckett's Blog</h1>
 </header>
@@ -58,4 +59,18 @@
 <footer>
   <a href="/"> Home </a>
 </footer>
+<script
+  src="https://cdn.by.wonderpush.com/sdk/1.1/wonderpush-loader.min.js"
+  async
+></script>
+<script>
+  window.WonderPush = window.WonderPush || [];
+  WonderPush.push([
+    'init',
+    {
+      webKey:
+        'a543112c9d6a3917c10ea87bb49caa5b44f3dafe8b8786667304d40118a33008',
+    },
+  ]);
+</script>
 {% endmacro %}

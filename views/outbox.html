@@ -8,11 +8,12 @@
 <link rel="manifest" href="/manifest.json" />
 <header class="header">
   <h1>{{ attributedTo.name }}'s Blog</h1>
-  <nav>
+  <p>{{ entity.summary | safe }}</p>
+  <!--<nav>
     <a href="{{ attributedTo.url }}">
       @{{ attributedTo.preferredUsername}}@puckett.social
     </a>
-  </nav>
+  </nav>-->
 </header>
 <main class="timeline">
   {% for item in feed %} {% if item.type == 'Article' %}
@@ -33,18 +34,4 @@
   </article>
   {% endif %} {% endfor %}
 </main>
-<script
-  src="https://cdn.by.wonderpush.com/sdk/1.1/wonderpush-loader.min.js"
-  async
-></script>
-<script>
-  window.WonderPush = window.WonderPush || [];
-  WonderPush.push([
-    'init',
-    {
-      webKey:
-        'a543112c9d6a3917c10ea87bb49caa5b44f3dafe8b8786667304d40118a33008',
-    },
-  ]);
-</script>
 {% endmacro %}
