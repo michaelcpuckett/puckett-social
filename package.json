@@ -25,8 +25,7 @@
       "distDir": "./static",
       "source": [
         "./pages/login.ts",
-        "./pages/home.ts",
-        "./pages/post.ts"
+        "./pages/home.ts"
       ]
     }
   },
